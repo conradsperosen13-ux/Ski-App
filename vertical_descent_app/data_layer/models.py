@@ -2,6 +2,12 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from enum import Enum
 from typing import Optional, List
+from sqlalchemy import Column, Integer, String, Float, DateTime, JSON
+from vertical_descent_app.data_layer.database import Base
+
+# =============================================================================
+# Pydantic Models (Data Exchange)
+# =============================================================================
 
 class VariableType(Enum):
     TEMP_AIR = "temp_air"
@@ -33,3 +39,33 @@ class ForecastResponse(BaseModel):
     generated_at: datetime
     points: List[UnifiedDataPoint]
     status: str # "OK", "PARTIAL_FAILURE", "CACHE_HIT"
+
+# =============================================================================
+# SQLAlchemy Models (Database Persistence)
+# =============================================================================
+
+class Observations(Base):
+    __tablename__ = "observations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_id = Column(Integer, index=True)
+    observation_time_utc = Column(DateTime, index=True)
+    actual_swe_inches = Column(Float)
+    actual_snow_depth_inches = Column(Float)
+    actual_temp_min_f = Column(Float)
+    actual_temp_max_f = Column(Float)
+
+class ForecastHistory(Base):
+    __tablename__ = "forecast_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    location_id = Column(Integer, index=True)
+    model_id = Column(String, index=True)
+    issue_time_utc = Column(DateTime, index=True)
+    valid_time_utc = Column(DateTime, index=True)
+    lead_time_hours = Column(Integer)
+    predicted_swe_inches = Column(Float)
+    predicted_snow_depth_inches = Column(Float)
+    predicted_temp_min_f = Column(Float)
+    predicted_temp_max_f = Column(Float)
+    serialized_payload_json = Column(JSON)
