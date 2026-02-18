@@ -54,11 +54,11 @@ with st.sidebar:
         'opacity:0.5; margin-bottom:0.75rem;">Data Sources</p>',
         unsafe_allow_html=True
     )
-    
+
     # Add NWP data toggle
     use_nwp = st.toggle("🌐 Live NWP Data (Open-Meteo)", value=True)
     st.session_state["use_nwp"] = use_nwp
-    
+
     paste_input = st.text_area(
         "Paste Snowiest Table",
         height=120,
@@ -477,16 +477,14 @@ RESORTS = {
 # 4. NWP FORECAST ENGINE (Integrated from new engine)
 # =============================================================================
 
-# Debug function - at top level, NOT inside any class
-@st.cache_data(ttl=0)  # No cache for debugging
 def debug_nwp_api(lat, lon):
-    """Debug function to see raw API response"""
+    """Debug function to see raw API response. Returns a dict or None."""
     import requests
     models_list = [
-        "ecmwf_ifs04", "gfs_seamless", "jma_seamless", 
+        "ecmwf_ifs04", "gfs_seamless", "jma_seamless",
         "icon_seamless", "gem_global", "meteofrance_seamless"
     ]
-    
+
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": lat,
@@ -496,30 +494,16 @@ def debug_nwp_api(lat, lon):
         "precipitation_unit": "inch",
         "timezone": "America/Denver"
     }
-    
+
     try:
         response = requests.get(url, params=params, timeout=15)
         response.raise_for_status()
         data = response.json()
-        
-        # Print debug info
-        st.sidebar.write("✅ NWP API Connected")
-        if "hourly" in data:
-            st.sidebar.write(f"Hours: {len(data['hourly'].get('time', []))}")
-            # Show available keys
-            keys = list(data['hourly'].keys())
-            st.sidebar.write(f"Keys: {keys[:5]}...")  # First 5 keys
-            
-            # Check for model data
-            model_keys = [k for k in keys if any(m in k for m in ['ecmwf', 'gfs', 'jma', 'icon', 'gem'])]
-            st.sidebar.write(f"Models found: {len(model_keys)}")
-            
-            return data
-        else:
-            st.sidebar.error("No hourly data in response")
-            return None
+
+        # We don't write to sidebar anymore to avoid cache issues/writes
+        return data
     except Exception as e:
-        st.sidebar.error(f"API Error: {str(e)}")
+        # Return None or handle error in caller
         return None
 
 class PointForecastEngine:
@@ -527,10 +511,10 @@ class PointForecastEngine:
     Enterprise-Grade Numerical Weather Prediction (NWP) Processor.
     Integrated into Summit Terminal dashboard.
     """
-    
+
     LAPSE_RATE_C_PER_100M = 0.65
-    OROGRAPHIC_LIFT_FACTOR = 0.05 
-    
+    OROGRAPHIC_LIFT_FACTOR = 0.05
+
     MODEL_DISPLAY_MAP = {
         "ecmwf_ifs04": "ECMWF", "gfs_seamless": "GFS",
         "jma_seamless": "JMA", "icon_seamless": "ICON",
@@ -548,11 +532,11 @@ class PointForecastEngine:
         path = cls.get_cache_path(lat, lon)
         if not path.exists():
             return None
-        
+
         last_modified = path.stat().st_mtime
         if (time.time() - last_modified) > CACHE_TTL_SECONDS:
             return None
-            
+
         try:
             with open(path, "r") as f:
                 return json.load(f)
@@ -571,10 +555,10 @@ class PointForecastEngine:
     @staticmethod
     async def fetch_api_data(lat: float, lon: float) -> Optional[Dict]:
         models_list = [
-            "ecmwf_ifs04", "gfs_seamless", "jma_seamless", 
+            "ecmwf_ifs04", "gfs_seamless", "jma_seamless",
             "icon_seamless", "gem_global", "meteofrance_seamless"
         ]
-        
+
         url = "https://api.open-meteo.com/v1/forecast"
         params = {
             "latitude": lat,
@@ -609,29 +593,30 @@ class PointForecastEngine:
             if not data:
                 logger.error(f"[{resort_name}] No data provided")
                 return pd.DataFrame()
-                
+
             hourly = data.get("hourly", {})
-            
+
             if not hourly:
                 logger.error(f"[{resort_name}] No hourly data in response")
                 return pd.DataFrame()
-            
+
             if "time" not in hourly or not hourly["time"]:
                 logger.error(f"[{resort_name}] No time data in response")
                 return pd.DataFrame()
-            
+
             times = pd.to_datetime(hourly["time"])
             if len(times) == 0:
                 logger.error(f"[{resort_name}] Empty time array")
                 return pd.DataFrame()
-                
+
+            # Ensure Denver TZ
             times = times.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
-            
+
             model_elev_m = data.get("elevation", 0)
             if model_elev_m is None:
                 model_elev_m = 0
                 logger.warning(f"[{resort_name}] No elevation in response, using 0")
-            
+
             # Define Bands
             base_m = elev_config["base"] * 0.3048
             peak_m = elev_config["peak"] * 0.3048
@@ -639,14 +624,14 @@ class PointForecastEngine:
             bands = {"Base": base_m, "Mid": mid_m, "Summit": peak_m}
 
             df_list = []
-            
+
             for model_id, model_label in cls.MODEL_DISPLAY_MAP.items():
                 p_key = f"precipitation_{model_id}"
                 t_key = f"temperature_2m_{model_id}"
                 rh_key = f"relative_humidity_700hPa_{model_id}"
                 cloud_key = f"cloud_cover_{model_id}"
                 fl_key = f"freezing_level_height_{model_id}"
-                
+
                 # Check if all required keys exist
                 if all(k in hourly for k in [p_key, t_key, rh_key, cloud_key, fl_key]):
                     try:
@@ -656,50 +641,50 @@ class PointForecastEngine:
                         rh_700 = hourly[rh_key]
                         cloud_cover = hourly[cloud_key]
                         freezing_level = hourly[fl_key]
-                        
+
                         # Check if any are None or empty
                         if not all([precip_raw, temp_raw_c, rh_700, cloud_cover, freezing_level]):
                             logger.debug(f"[{resort_name}] Some data empty for {model_label}")
                             continue
-                        
+
                         # Convert to numpy arrays, replacing None with 0
                         precip_raw = np.array([x if x is not None else 0 for x in precip_raw], dtype=float)
                         temp_raw_c = np.array([x if x is not None else 0 for x in temp_raw_c], dtype=float)
                         rh_700 = np.array([x if x is not None else 0 for x in rh_700], dtype=float)
                         cloud_cover = np.array([x if x is not None else 0 for x in cloud_cover], dtype=float)
                         freezing_level = np.array([x if x is not None else 0 for x in freezing_level], dtype=float)
-                        
+
                         # Ensure same length as times
                         if len(precip_raw) != len(times):
                             logger.warning(f"[{resort_name}] Length mismatch for {model_label}")
                             continue
-                        
+
                         for band_name, target_elev_m in bands.items():
                             delta_z_m = target_elev_m - model_elev_m
                             temp_adj_c = temp_raw_c - (cls.LAPSE_RATE_C_PER_100M * (delta_z_m / 100.0))
                             lift_multiplier = 1.0 + cls.OROGRAPHIC_LIFT_FACTOR * (np.maximum(0, delta_z_m) / 100.0)
                             precip_adj = precip_raw * lift_multiplier
-                            
+
                             # Ensure no negative precipitation
                             precip_adj = np.maximum(0, precip_adj)
-                            
+
                             # Dynamic SLR calculations
                             is_rain = temp_adj_c > 1.0
                             is_wet_snow = (temp_adj_c <= 1.0) & (temp_adj_c > -3.0)
                             is_dgz_champagne = (temp_adj_c <= -12.0) & (temp_adj_c >= -18.0) & (rh_700 >= 80.0)
-                            
+
                             # Kuchera SLR approximation
-                            kuchera_ratio = np.clip(12.0 + (-2.0 - temp_adj_c), 8.0, 30.0) 
-                            
+                            kuchera_ratio = np.clip(12.0 + (-2.0 - temp_adj_c), 8.0, 30.0)
+
                             slr = np.select(
                                 [is_rain, is_wet_snow, is_dgz_champagne],
-                                [0.0, 8.0, 20.0], 
+                                [0.0, 8.0, 20.0],
                                 default=kuchera_ratio
                             )
-                            
+
                             # Calculate snow amount (convert to inches)
                             snow_amount = precip_adj * slr
-                            
+
                             df_list.append(pd.DataFrame({
                                 "Date": times,
                                 "Model": model_label,
@@ -718,11 +703,11 @@ class PointForecastEngine:
                 else:
                     missing = [k for k in [p_key, t_key, rh_key, cloud_key, fl_key] if k not in hourly]
                     logger.debug(f"[{resort_name}] Skipping {model_label} due to missing keys: {missing}")
-            
+
             if not df_list:
                 logger.warning(f"[{resort_name}] No valid model data processed")
                 return pd.DataFrame()
-                
+
             result = pd.concat(df_list, ignore_index=True)
             logger.info(f"[{resort_name}] Processed {len(result)} rows from {len(df_list)} models")
             return result
@@ -747,12 +732,15 @@ class PointForecastEngine:
             data = await cls.fetch_api_data(lat, lon)
             if data:
                 cls.write_to_cache(lat, lon, data)
-        
+
         if not data:
             logger.warning(f"[{resort_name}] No data returned from API/Cache.")
             return pd.DataFrame()
 
-        return await asyncio.to_thread(cls.process_physics, data, elev_config, resort_name)
+        # Removed unnecessary asyncio.to_thread as process_physics is CPU bound and called from async context
+        # but the wrapper already handles event loop. Better to run directly or in process pool if heavy.
+        # Given Streamlit context, direct call is simpler and avoids thread overhead inside loop.
+        return cls.process_physics(data, elev_config, resort_name)
 
 # =============================================================================
 # END OF PointForecastEngine CLASS
@@ -791,22 +779,10 @@ def calculate_swe_ratio(temp_f):
             return ratio
     return DEFAULT_COLD_RATIO
 
-_NOAA_CACHE = {"df": None, "elev": 0, "timestamp": None}
-
-def _cache_noaa(df, elev):
-    _NOAA_CACHE["df"] = df
-    _NOAA_CACHE["elev"] = elev
-    _NOAA_CACHE["timestamp"] = datetime.now()
-
-def _get_cached_noaa():
-    if _NOAA_CACHE["df"] is not None:
-        age = (datetime.now() - _NOAA_CACHE["timestamp"]).total_seconds()
-        if age < 21600:
-            return _NOAA_CACHE["df"], _NOAA_CACHE["elev"]
-    return None
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_noaa_forecast(lat, lon, retries=3):
+    # Removed manual _NOAA_CACHE global variable to fix concurrency issues.
+    # Uses st.cache_data mechanism. Caller should handle stale data via st.session_state fallback.
     for attempt in range(retries):
         try:
             point_resp = requests.get(
@@ -817,8 +793,7 @@ def get_noaa_forecast(lat, lon, retries=3):
             prop = point_resp.json().get("properties", {})
             forecast_url = prop.get("forecastHourly")
             if not forecast_url:
-                cached = _get_cached_noaa()
-                return cached if cached else (pd.DataFrame(), 0)
+                raise ValueError("No forecastHourly URL")
 
             forecast_resp = requests.get(forecast_url, headers=API_HEADERS, timeout=API_TIMEOUT)
             forecast_resp.raise_for_status()
@@ -838,7 +813,7 @@ def get_noaa_forecast(lat, lon, retries=3):
                     except:
                         wind_speed = 0
                 data.append({
-                    "Time": pd.to_datetime(p["startTime"]).tz_convert("UTC").tz_localize(None),
+                    "Time": pd.to_datetime(p["startTime"]).tz_convert("America/Denver"),
                     "Temp": temp_f,
                     "Humidity": p["relativeHumidity"]["value"],
                     "Wind": wind_speed,
@@ -846,7 +821,6 @@ def get_noaa_forecast(lat, lon, retries=3):
                     "Summary": p["shortForecast"]
                 })
             df = pd.DataFrame(data)
-            _cache_noaa(df, elevation_ft)
             return df, elevation_ft
 
         except Exception as e:
@@ -854,11 +828,8 @@ def get_noaa_forecast(lat, lon, retries=3):
             if attempt < retries - 1:
                 time.sleep(2 ** attempt)
             else:
-                cached = _get_cached_noaa()
-                if cached:
-                    st.warning("Using cached NOAA data (live unavailable)")
-                    return cached
-                return pd.DataFrame(), 0
+                # Raise exception to let the caller handle fallback to stale data
+                raise e
 
 def _fetch_single_snotel(sid, retries=3):
     primary_url = (
@@ -954,22 +925,47 @@ def get_snotel_data(site_ids):
 # 6. PARSER (Snowiest)
 # =============================================================================
 
-def _calculate_date(day_val, is_history):
-    now = datetime.now()
+def _calculate_date(day_val, is_history, ref_date=None):
+    if ref_date is None:
+        ref_date = datetime.now()
+
     try:
         day_num = int(day_val)
-        month, year = now.month, now.year
-        if not is_history and day_num < now.day:
-            month = (month % 12) + 1
-            if month == 1:
-                year += 1
-        elif is_history and day_num > now.day + 5:
-            month = month - 1 if month > 1 else 12
-            if month == 12:
-                year -= 1
-        return f"{year}-{month:02d}-{day_num:02d}"
     except:
         return None
+
+    candidates = []
+    # Check month-1, month, month+1
+    for offset in [-1, 0, 1]:
+        y, m = ref_date.year, ref_date.month + offset
+        while m < 1:
+            m += 12
+            y -= 1
+        while m > 12:
+            m -= 12
+            y += 1
+        try:
+            candidates.append(datetime(y, m, day_num))
+        except ValueError:
+            pass
+
+    if not candidates:
+        return None
+
+    # Biased closest logic
+    def score(d):
+        diff = (d - ref_date).days
+        abs_diff = abs(diff)
+        # Penalty for wrong direction (History should be past/now, Forecast should be future/now)
+        # Allow small buffer (e.g. 1-2 days) for timezone diffs or "yesterday"
+        if is_history and diff > 1:
+            return abs_diff + 100
+        if not is_history and diff < -2:
+            return abs_diff + 100
+        return abs_diff
+
+    best = min(candidates, key=score)
+    return best.strftime("%Y-%m-%d")
 
 def _parse_model_line(line, headers, is_history, model_totals):
     parts = line.split('\t')
@@ -994,15 +990,22 @@ def _parse_model_line(line, headers, is_history, model_totals):
 
     observations = []
     daily_sum = 0.0
+
+    # Use Denver time for reference
+    denver_tz = pytz.timezone("America/Denver")
+    ref_date = datetime.now(denver_tz).replace(tzinfo=None) # Use naive for logic calc
+
     for i, day_val in enumerate(headers):
         if i >= len(numbers):
             break
         amount = numbers[i] if numbers[i] is not None else 0.0
         daily_sum += amount
-        date_str = _calculate_date(day_val, is_history)
+        date_str = _calculate_date(day_val, is_history, ref_date=ref_date)
         if date_str:
+            # Create tz-aware timestamp
+            ts = pd.to_datetime(date_str).tz_localize("America/Denver")
             observations.append({
-                "Date": pd.to_datetime(date_str),
+                "Date": ts,
                 "Amount": amount,
                 "Model": model_name,
                 "IsHistory": is_history,
@@ -1061,10 +1064,10 @@ def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band
         return None
 
     filtered = df_models[
-        (df_models["Model"].isin(selected_models)) & 
+        (df_models["Model"].isin(selected_models)) &
         (df_models["Band"] == band_filter)
     ] if "Band" in df_models.columns else df_models[df_models["Model"].isin(selected_models)]
-    
+
     # Get the timezone from the data (if available)
     if not filtered.empty and filtered["Date"].dt.tz is not None:
         tz = filtered["Date"].dt.tz
@@ -1157,10 +1160,10 @@ def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
 
     if show_spaghetti and not df_models.empty:
         filtered = df_models[
-            (df_models["Model"].isin(selected_models)) & 
+            (df_models["Model"].isin(selected_models)) &
             (df_models["Band"] == band_filter)
         ] if "Band" in df_models.columns else df_models[df_models["Model"].isin(selected_models)]
-        
+
         if not df_models.empty and "Date" in df_models.columns and df_models["Date"].dt.tz is not None:
             tz = df_models["Date"].dt.tz
         else:
@@ -1171,7 +1174,7 @@ def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
                   "rgba(134,239,172,0.55)", "rgba(249,168,212,0.55)"]
         for i, mdl in enumerate(selected_models):
             m_df = filtered[
-                (filtered["Model"] == mdl) & 
+                (filtered["Model"] == mdl) &
                 (filtered["Date"] >= now_dt)
             ]
             if not m_df.empty:
@@ -1261,6 +1264,8 @@ if "nwp_data" not in st.session_state:
     st.session_state["nwp_data"] = pd.DataFrame()
 if "use_nwp" not in st.session_state:
     st.session_state["use_nwp"] = True
+if "noaa_cache" not in st.session_state:
+    st.session_state["noaa_cache"] = (pd.DataFrame(), 0)
 
 if from_paste and paste_input.strip():
     df_p, tots_p = parse_snowiest_raw_text(paste_input)
@@ -1291,9 +1296,16 @@ with top_right:
 conf = RESORTS[selected_loc]
 
 with st.spinner(f"Syncing {selected_loc}…"):
-    noaa_df, grid_elev = get_noaa_forecast(conf["lat"], conf["lon"])
+    # NOAA Fetch with session state fallback
+    try:
+        noaa_df, grid_elev = get_noaa_forecast(conf["lat"], conf["lon"])
+        st.session_state["noaa_cache"] = (noaa_df, grid_elev)
+    except Exception as e:
+        st.warning(f"NOAA API unavailable, using cached data if available. Error: {e}")
+        noaa_df, grid_elev = st.session_state["noaa_cache"]
+
     snotel_df = get_snotel_data(conf["snotel_ids"])
-    
+
     # Fetch NWP data if enabled
     if st.session_state["use_nwp"]:
         with st.spinner("Fetching live NWP ensemble..."):
@@ -1301,7 +1313,7 @@ with st.spinner(f"Syncing {selected_loc}…"):
             st.session_state["nwp_data"] = nwp_df
     else:
         st.session_state["nwp_data"] = pd.DataFrame()
-    
+
     if st.session_state["raw_model_data"].empty:
         demo_df, demo_tots = parse_snowiest_raw_text(DEMO_DATA)
         st.session_state["raw_model_data"] = demo_df
@@ -1311,12 +1323,24 @@ with st.spinner(f"Syncing {selected_loc}…"):
 if st.session_state["use_nwp"]:
     with st.expander("🔧 NWP Debug Info", expanded=False):
         debug_data = debug_nwp_api(conf["lat"], conf["lon"])
-        if debug_data and "hourly" in debug_data:
-            st.json({
-                "elevation": debug_data.get("elevation"),
-                "hourly_keys": list(debug_data["hourly"].keys())[:10],
-                "sample_time": debug_data["hourly"].get("time", [])[:3] if "time" in debug_data["hourly"] else None
-            })
+        if debug_data:
+            st.write("✅ NWP API Connected")
+            if "hourly" in debug_data:
+                st.write(f"Hours: {len(debug_data['hourly'].get('time', []))}")
+                keys = list(debug_data['hourly'].keys())
+                st.write(f"Keys: {keys[:5]}...")
+                model_keys = [k for k in keys if any(m in k for m in ['ecmwf', 'gfs', 'jma', 'icon', 'gem'])]
+                st.write(f"Models found: {len(model_keys)}")
+
+                st.json({
+                    "elevation": debug_data.get("elevation"),
+                    "hourly_keys": list(debug_data["hourly"].keys())[:10],
+                    "sample_time": debug_data["hourly"].get("time", [])[:3] if "time" in debug_data["hourly"] else None
+                })
+            else:
+                st.error("No hourly data in response")
+        else:
+            st.error("Failed to connect to NWP API")
 
 # Combine data sources
 df_snowiest = st.session_state["raw_model_data"]
@@ -1349,10 +1373,12 @@ st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 band_options = ["Summit", "Mid", "Base"] if "Band" in df_models.columns else ["Summit"]
 selected_band = "Summit"
 if "Band" in df_models.columns:
-    selected_band = st.select_slider(
+    # Changed from st.select_slider to st.radio for better UX with discrete options
+    selected_band = st.radio(
         "Elevation Band",
         options=band_options,
-        value="Summit",
+        index=0,
+        horizontal=True,
         help="Select elevation band for forecast (NWP only)"
     )
 
@@ -1422,12 +1448,12 @@ with h_right:
         source_indicators.append('<span class="pill pill-blue">Snowiest</span>')
     if not df_nwp.empty:
         source_indicators.append('<span class="pill pill-teal">NWP Live</span>')
-    
+
     st.markdown(
         f'<div style="margin-top:0.5rem; display: flex; gap: 0.5rem;">{"".join(source_indicators)}</div>',
         unsafe_allow_html=True
     )
-    
+
     st.markdown(
         f'<div style="margin-top:0.5rem; font-size:0.75rem;">'
         f'<span class="live-dot"></span>'
@@ -1445,7 +1471,13 @@ st.markdown('<div class="section-label fade-up fade-up-3">Atmospheric Outlook</d
 
 if not noaa_df.empty:
     now_naive = datetime.now()
-    shorts = noaa_df[noaa_df["Time"] > now_naive].head(96).copy()
+    # Check if Time is aware, if so convert now_naive to aware for comparison or vice versa
+    if noaa_df["Time"].dt.tz is not None:
+        now_cmp = pd.Timestamp.now(tz=noaa_df["Time"].dt.tz)
+    else:
+        now_cmp = now_naive
+
+    shorts = noaa_df[noaa_df["Time"] > now_cmp].head(96).copy()
 
     if not shorts.empty:
         shorts["Date"] = shorts["Time"].dt.date
@@ -1518,6 +1550,9 @@ if not df_models.empty and metrics:
 
             if not show_extended:
                 cutoff = datetime.now() + timedelta(days=7)
+                # Ensure cutoff is compatible with daily_stats["Date"] (which is now aware)
+                if daily_stats["Date"].dt.tz is not None:
+                    cutoff = pd.Timestamp(cutoff).tz_localize(daily_stats["Date"].dt.tz, ambiguous='NaT', nonexistent='shift_forward')
                 daily_stats = daily_stats[daily_stats["Date"] <= cutoff].copy()
 
             if len(daily_stats) > 1:
@@ -1529,8 +1564,11 @@ if not df_models.empty and metrics:
                     value=(date_min, date_max),
                     format_func=lambda d: d.strftime("%b %d"),
                 )
-                w_start  = pd.Timestamp(slider_range[0])
-                w_end    = pd.Timestamp(slider_range[1])
+                # Create timestamp for comparison with aware series
+                tz = daily_stats["Date"].dt.tz
+                w_start = pd.Timestamp(slider_range[0]).tz_localize(tz)
+                w_end   = pd.Timestamp(slider_range[1]).tz_localize(tz) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1) # include end day
+
                 windowed = daily_stats[
                     (daily_stats["Date"] >= w_start) & (daily_stats["Date"] <= w_end)
                 ].copy()
@@ -1561,7 +1599,8 @@ if not df_models.empty and metrics:
                 noaa_cutoff_dt=noaa_cutoff, show_extended=show_extended,
                 band_filter=selected_band
             )
-            st.plotly_chart(fig, width='stretch')
+            # Use use_container_width=True instead of deprecated width='stretch'
+            st.plotly_chart(fig, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
     totals = st.session_state["model_totals"]
@@ -1576,8 +1615,8 @@ if not df_models.empty and metrics:
                 }
                 for k, v in totals.items()
             ]
-            st.dataframe(pd.DataFrame(check), hide_index=True, width='stretch')
-    
+            st.dataframe(pd.DataFrame(check), hide_index=True, use_container_width=True)
+
     # NWP Physics Details
     if not df_nwp.empty and "Band" in df_nwp.columns:
         with st.expander("NWP Physics Details"):
@@ -1588,13 +1627,13 @@ if not df_models.empty and metrics:
             - Kuchera SLR: 12 + (-2 - temp_c)
             - DGZ Champaign: 18:1 SLR (Temp -12°C to -18°C, RH >80%)
             """)
-            
+
             latest_nwp = df_nwp[df_nwp["Band"] == selected_band].groupby("Model").last().reset_index()
             if not latest_nwp.empty:
                 st.dataframe(
                     latest_nwp[["Model", "Temp_C", "SLR", "Cloud_Cover", "Freezing_Level_m"]].round(1),
                     hide_index=True,
-                    width='stretch'
+                    use_container_width=True
                 )
 
 else:
@@ -1626,7 +1665,7 @@ with st.expander("Update Model Data"):
                 cache_path.unlink()
             st.cache_data.clear()
             st.rerun()
-    
+
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
     inline_paste = st.text_area(
         "Or paste Snowiest table here", height=100, label_visibility="collapsed",
@@ -1701,7 +1740,7 @@ if not snotel_df.empty:
         ))
         fig_s.update_layout(layout_s)
         fig_s.update_yaxes(title_text="SWE (in)", secondary_y=False)
-        st.plotly_chart(fig_s, width='stretch')
+        st.plotly_chart(fig_s, use_container_width=True)
 
     with st.expander("SNOTEL Raw Records"):
         show_cols = ["Date", "SiteID", "SWE", "SWE_Delta"]
@@ -1710,7 +1749,7 @@ if not snotel_df.empty:
         if "Temp" in snotel_df.columns:
             show_cols.append("Temp")
         disp = snotel_df[show_cols].sort_values("Date", ascending=False).reset_index(drop=True)
-        st.dataframe(disp, hide_index=True, width='stretch', height=240)
+        st.dataframe(disp, hide_index=True, use_container_width=True, height=240)
 
 else:
     st.markdown(f"""
@@ -1731,7 +1770,7 @@ with t1:
     st.caption("SNOTEL · Last 10 Days")
     if not snotel_df.empty:
         show_cols = [c for c in ["Date", "SWE", "Depth", "Temp"] if c in snotel_df.columns]
-        st.dataframe(snotel_df.tail(10)[show_cols], width='stretch', hide_index=True)
+        st.dataframe(snotel_df.tail(10)[show_cols], use_container_width=True, hide_index=True)
     else:
         st.info("No SNOTEL data")
 
@@ -1742,7 +1781,7 @@ with t2:
                      if c in metrics["daily_stats"].columns]
         st.dataframe(
             metrics["daily_stats"][disp_cols].round(2),
-            width='stretch', hide_index=True
+            use_container_width=True, hide_index=True
         )
     else:
         st.info("No forecast data")
@@ -1753,7 +1792,7 @@ with t3:
         latest_nwp = df_nwp[df_nwp["Band"] == "Summit"].groupby("Model").last().reset_index()
         st.dataframe(
             latest_nwp[["Model", "Amount", "Temp_C", "SLR"]].round(1),
-            width='stretch', hide_index=True
+            use_container_width=True, hide_index=True
         )
     else:
         st.info("No NWP data (enable in sidebar)")
