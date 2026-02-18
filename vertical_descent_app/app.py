@@ -1,19 +1,14 @@
 import logging
-from datetime import datetime, timedelta
 import asyncio
 import pandas as pd
-import streamlit as st
 import plotly.graph_objects as go
+import streamlit as st
+from plotly.subplots import make_subplots
+from datetime import datetime, timedelta
 
-# Import logic from the new module
-from logic import (
-    RESORTS, DEMO_DATA,
-    PointForecastEngine, run_async_forecast, get_raw_forecast_data,
-    calculate_swe_ratio, get_noaa_forecast as logic_get_noaa_forecast,
-    get_snotel_data as logic_get_snotel_data,
-    parse_snowiest_raw_text, calculate_forecast_metrics,
-    build_forecast_figure
-)
+from data_layer.manager import DataManager
+from data_layer.config import RESORTS
+from data_layer.models import VariableType, DataQuality
 
 # =============================================================================
 # 1. PAGE CONFIGURATION
@@ -47,26 +42,7 @@ with st.sidebar:
 
     st.divider()
     st.markdown(
-        '<p style="font-size:0.7rem; letter-spacing:0.12em; text-transform:uppercase; '
-        'opacity:0.5; margin-bottom:0.75rem;">Data Sources</p>',
-        unsafe_allow_html=True
-    )
-
-    # Add NWP data toggle
-    use_nwp = st.toggle("🌐 Live NWP Data (Open-Meteo)", value=True)
-    st.session_state["use_nwp"] = use_nwp
-    
-    paste_input = st.text_area(
-        "Paste Snowiest Table",
-        height=120,
-        placeholder="Paste table from snowiest.app…",
-        label_visibility="collapsed"
-    )
-    from_paste = st.button("⬆  Parse Data", key="sidebar_parse")
-
-    st.divider()
-    st.markdown(
-        '<p style="font-size:0.65rem; opacity:0.3; text-align:center;">Summit Terminal · v4 · NWP Integrated</p>',
+        '<p style="font-size:0.65rem; opacity:0.3; text-align:center;">Summit Terminal · v5 · DAL Integrated</p>',
         unsafe_allow_html=True
     )
 
@@ -256,14 +232,6 @@ section[data-testid="stSidebar"] {{
 .live-dot {{
     height: 7px; width: 7px;
     background: {{ACCENT_TEAL}};
-.pill-blue  {{ background:rgba(56,189,248,0.1);  color:{ACCENT_BLUE};  border-color:rgba(56,189,248,0.2); }}
-.pill-teal  {{ background:rgba(45,212,191,0.1);  color:{ACCENT_TEAL};  border-color:rgba(45,212,191,0.2); }}
-.pill-rose  {{ background:rgba(251,113,133,0.1); color:{ACCENT_ROSE};  border-color:rgba(251,113,133,0.2); }}
-.pill-amber {{ background:rgba(251,191,36,0.1);  color:{ACCENT_AMBER}; border-color:rgba(251,191,36,0.2); }}
-
-.live-dot {{
-    height: 7px; width: 7px;
-    background: {ACCENT_TEAL};
     border-radius: 50%;
     display: inline-block;
     margin-right: 5px;
@@ -394,89 +362,192 @@ section[data-testid="stSidebar"] {{
 </style>
 """, unsafe_allow_html=True)
 
+PLOTLY_TEMPLATE = dict(
+    layout=go.Layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, sans-serif", color=PLOTLY_FONT, size=11),
+        xaxis=dict(gridcolor=PLOTLY_GRID, zeroline=False, showline=False),
+        yaxis=dict(gridcolor=PLOTLY_GRID, zeroline=False, showline=False),
+        margin=dict(l=0, r=0, t=20, b=20),
+        legend=dict(orientation="h", y=1.06, x=0, bgcolor="rgba(0,0,0,0)", font=dict(size=11)),
+        hovermode="x unified",
+        hoverlabel=dict(
+            bgcolor=PLOTLY_HOVER,
+            bordercolor=BORDER,
+            font=dict(family="Inter, sans-serif", size=12, color=TEXT_PRI)
+        )
+    )
+)
+
 # =============================================================================
 # 3. CONFIGURATION & CONSTANTS
 # =============================================================================
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+STORM_THRESHOLD_IN = 2.0
+
 # =============================================================================
-# 4. NWP FORECAST ENGINE
+# 4. ANALYTICS ENGINE (Enhanced for multi-source)
 # =============================================================================
 
-# Debug function - at top level, NOT inside any class
-def debug_nwp_api(lat, lon):
-    """Debug function to see raw API response"""
-    
-    data = get_raw_forecast_data(lat, lon)
-    
-    if data:
-        # Print debug info
-        st.sidebar.write("✅ NWP API Connected (Cached/Live)")
-        if "hourly" in data:
-            st.sidebar.write(f"Hours: {len(data['hourly'].get('time', []))}")
-            # Show available keys
-            keys = list(data['hourly'].keys())
-            st.sidebar.write(f"Keys: {keys[:5]}...")  # First 5 keys
-            
-            # Check for model data
-            model_keys = [k for k in keys if any(m in k for m in ['ecmwf', 'gfs', 'jma', 'icon', 'gem'])]
-            st.sidebar.write(f"Models found: {len(model_keys)}")
-            
-            return data
-        else:
-            st.sidebar.error("No hourly data in response")
-            return None
-    else:
-        st.sidebar.error("Failed to fetch raw data")
+def calculate_forecast_metrics(df_models, selected_models, current_depth=0):
+    if df_models.empty or not selected_models:
         return None
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_nwp_forecast(lat: float, lon: float, elev_config: dict[str, int], resort_name: str) -> pd.DataFrame:
-    """
-    Cached wrapper for NWP forecast.
-    """
-    return run_async_forecast(lat, lon, elev_config, resort_name)
+    # Make a copy to avoid altering the original DataFrame
+    df = df_models.copy()
+
+    filtered = df[df["Model"].isin(selected_models)]
+
+    # Use the timezone from the data
+    tz = filtered["Date"].dt.tz if not filtered.empty else None
+    if tz is None:
+        # Default to Denver if no TZ
+        filtered["Date"] = filtered["Date"].dt.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
+        tz = filtered["Date"].dt.tz
+
+    now = pd.Timestamp.now(tz=tz).normalize()  # midnight today
+    future = filtered[filtered["Date"] >= now]
+
+    if future.empty:
+        return None
+
+    # Group by date and calculate statistics
+    daily_stats = future.groupby("Date")["Amount"].agg(["mean", "min", "max", "std"]).reset_index()
+    daily_stats = daily_stats.sort_values("Date").reset_index(drop=True)
+    daily_stats["cumulative"] = daily_stats["mean"].cumsum()
+    daily_stats["total_depth"] = current_depth + daily_stats["cumulative"]
+    daily_stats["spread"] = daily_stats["max"] - daily_stats["min"]
+    daily_stats["mean_48h"] = daily_stats["mean"].rolling(window=2, min_periods=1).sum()
+
+    best_24h_idx  = daily_stats["mean"].idxmax()
+    best_24h_val  = daily_stats.loc[best_24h_idx, "mean"]
+    best_24h_date = daily_stats.loc[best_24h_idx, "Date"]
+
+    best_48h_idx  = daily_stats["mean_48h"].idxmax()
+    best_48h_val  = daily_stats.loc[best_48h_idx, "mean_48h"]
+    best_48h_date = daily_stats.loc[best_48h_idx, "Date"]
+
+    daily_stats["is_heavy"] = daily_stats["mean"] >= STORM_THRESHOLD_IN
+    daily_stats["storm_group"] = (daily_stats["is_heavy"] != daily_stats["is_heavy"].shift()).cumsum()
+    storm_groups = daily_stats[daily_stats["is_heavy"]].groupby("storm_group")
+
+    major_storms = []
+    for _, group in storm_groups:
+        if len(group) >= 3:
+            major_storms.append({
+                "start": group["Date"].iloc[0],
+                "end":   group["Date"].iloc[-1],
+                "total": group["mean"].sum(),
+                "days":  len(group)
+            })
+    major_storms.sort(key=lambda x: x["total"], reverse=True)
+
+    storms = []
+    in_storm, storm_start, storm_total = False, None, 0.0
+    for _, row in daily_stats.iterrows():
+        if row["mean"] >= STORM_THRESHOLD_IN and not in_storm:
+            in_storm, storm_start, storm_total = True, row["Date"], row["mean"]
+        elif row["mean"] >= STORM_THRESHOLD_IN and in_storm:
+            storm_total += row["mean"]
+        elif row["mean"] < STORM_THRESHOLD_IN and in_storm:
+            storms.append({"start": storm_start, "total": storm_total})
+            in_storm, storm_total = False, 0.0
+    if in_storm:
+        storms.append({"start": storm_start, "total": storm_total})
+
+    return {
+        "best_24h_date":   best_24h_date,
+        "best_24h_amount": best_24h_val,
+        "best_48h_date":   best_48h_date,
+        "best_48h_amount": best_48h_val,
+        "major_storms":    major_storms,
+        "deepest_total":   daily_stats["total_depth"].max(),
+        "total_snowfall":  daily_stats["cumulative"].iloc[-1],
+        "avg_spread":      daily_stats["spread"].mean(),
+        "storms":          storms,
+        "daily_stats":     daily_stats,
+    }
+
+def build_forecast_figure(stats, show_spaghetti, show_ribbon,
+                           df_models, selected_models, show_extended):
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.68, 0.32],
+        vertical_spacing=0.06,
+        specs=[[{"secondary_y": True}], [{"secondary_y": False}]]
+    )
+
+    if show_ribbon and not stats.empty:
+        x_ribbon = pd.concat([stats["Date"], stats["Date"][::-1]])
+        y_ribbon = pd.concat([stats["max"], stats["min"][::-1]])
+        fig.add_trace(go.Scatter(
+            x=x_ribbon, y=y_ribbon,
+            fill="toself", fillcolor="rgba(56,189,248,0.07)",
+            line=dict(color="rgba(0,0,0,0)"),
+            name="Uncertainty Range", hoverinfo="skip"
+        ), row=1, col=1, secondary_y=False)
+
+    if show_spaghetti and not df_models.empty:
+        df_local = df_models.copy()
+
+        filtered = df_local[df_local["Model"].isin(selected_models)]
+
+        colors = ["rgba(251,113,133,0.55)", "rgba(251,191,36,0.55)",
+                  "rgba(45,212,191,0.55)", "rgba(196,181,253,0.55)",
+                  "rgba(134,239,172,0.55)", "rgba(249,168,212,0.55)"]
+        for i, mdl in enumerate(selected_models):
+            m_df = filtered[filtered["Model"] == mdl]
+            if not m_df.empty:
+                fig.add_trace(go.Scatter(
+                    x=m_df["Date"], y=m_df["Amount"].fillna(0),
+                    mode="lines",
+                    line=dict(width=1.5, color=colors[i % len(colors)]),
+                    name=mdl, opacity=0.75,
+                    hovertemplate=f"<b>{mdl}</b>: %{{y:.1f}}\"<extra></extra>"
+                ), row=1, col=1, secondary_y=False)
+
+    if not stats.empty:
+        max_val = stats["mean"].max() or 0.1
+        bar_colors = [
+            f"rgba(56,189,248,{min(0.28 + v / max_val * 0.68, 0.95):.2f})"
+            for v in stats["mean"]
+        ]
+        fig.add_trace(go.Bar(
+            x=stats["Date"], y=stats["mean"],
+            name="Daily Average",
+            marker=dict(color=bar_colors, line=dict(width=0)),
+            hovertemplate="<b>%{x|%a %b %d}</b><br>Mean: <b>%{y:.2f}\"</b><extra></extra>"
+        ), row=1, col=1, secondary_y=False)
+
+        fig.add_trace(go.Scatter(
+            x=stats["Date"], y=stats["cumulative"],
+            name="Cumulative",
+            line=dict(color=ACCENT_ROSE, width=2.5),
+            fill="tozeroy", fillcolor="rgba(251,113,133,0.06)",
+            hovertemplate="Cumulative: <b>%{y:.1f}\"</b><extra></extra>"
+        ), row=1, col=1, secondary_y=True)
+
+    layout_update = PLOTLY_TEMPLATE["layout"].to_plotly_json()
+    layout_update.update(dict(
+        height=480, bargap=0.3,
+        yaxis=dict(title="Snow (in)", gridcolor=PLOTLY_GRID, zeroline=False, showline=False),
+        yaxis2=dict(
+            overlaying="y", side="right", showgrid=False, zeroline=False,
+            title="Cumul (in)",
+            tickfont=dict(color="rgba(251,113,133,0.6)"),
+            title_font=dict(color="rgba(251,113,133,0.6)")
+        ),
+        yaxis3=dict(title="°F / %", gridcolor=PLOTLY_GRID, zeroline=False, showline=False)
+    ))
+    fig.update_layout(layout_update)
+    return fig
 
 # =============================================================================
-# 5. DATA ENGINE (Cached Wrappers)
-# =============================================================================
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_noaa_forecast(lat, lon, retries=3):
-    return logic_get_noaa_forecast(lat, lon, retries)
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def get_snotel_data(site_ids, state="CO"):
-    return logic_get_snotel_data(site_ids, state)
-
-@st.cache_data(show_spinner=False)
-def get_forecast_metrics_cached(df, selected_models, current_depth, selected_band):
-    return calculate_forecast_metrics(df, selected_models, current_depth, selected_band)
-
-# =============================================================================
-# 8. SESSION STATE & PARSE HANDLING
-# =============================================================================
-if "raw_model_data" not in st.session_state:
-    st.session_state["raw_model_data"] = pd.DataFrame()
-if "model_totals" not in st.session_state:
-    st.session_state["model_totals"] = {}
-if "nwp_data" not in st.session_state:
-    st.session_state["nwp_data"] = pd.DataFrame()
-if "use_nwp" not in st.session_state:
-    st.session_state["use_nwp"] = True
-
-if from_paste and paste_input.strip():
-    df_p, tots_p = parse_snowiest_raw_text(paste_input)
-    if not df_p.empty:
-        st.session_state["raw_model_data"] = df_p
-        st.session_state["model_totals"] = tots_p
-        st.sidebar.success(f"Parsed {len(df_p)} observations")
-    else:
-        st.sidebar.error("Parse failed")
-
-# =============================================================================
-# 9. RESORT SELECTOR
+# 5. RESORT SELECTOR & DATA LOADING
 # =============================================================================
 top_left, top_right = st.columns([3, 1])
 with top_left:
@@ -494,80 +565,114 @@ with top_right:
 
 conf = RESORTS[selected_loc]
 
+# Initialize DataManager
+manager = DataManager()
+
+# Run Data Fetching via Asyncio
+@st.cache_data(ttl=60) # Short cache on UI side, let DAL handle SWR
+def fetch_data_via_dal(lat, lon):
+    start = datetime.utcnow() - timedelta(days=5) # 5 days history
+    end = datetime.utcnow() + timedelta(days=10) # 10 days forecast
+
+    try:
+        response = asyncio.run(manager.get_forecast(lat, lon, start, end))
+        return response
+    except Exception as e:
+        logger.error(f"DAL Error: {e}")
+        return None
+
 with st.spinner(f"Syncing {selected_loc}…"):
-    noaa_df, grid_elev = get_noaa_forecast(conf["lat"], conf["lon"])
-    snotel_df = get_snotel_data(conf["snotel_ids"], conf.get("state", "CO"))
-    
-    # Fetch NWP data if enabled
-    if st.session_state["use_nwp"]:
-        with st.spinner("Fetching live NWP ensemble..."):
-            nwp_df = get_nwp_forecast(conf["lat"], conf["lon"], conf["elev_ft"], selected_loc)
-            st.session_state["nwp_data"] = nwp_df
-    else:
-        st.session_state["nwp_data"] = pd.DataFrame()
-    
-    if st.session_state["raw_model_data"].empty:
-        demo_df, demo_tots = parse_snowiest_raw_text(DEMO_DATA)
-        st.session_state["raw_model_data"] = demo_df
-        st.session_state["model_totals"] = demo_tots
+    response = fetch_data_via_dal(conf["lat"], conf["lon"])
 
-# After getting NOAA forecast, add this debug section
-if st.session_state["use_nwp"]:
-    with st.expander("🔧 NWP Debug Info", expanded=False):
-        debug_data = debug_nwp_api(conf["lat"], conf["lon"])
-        if debug_data and "hourly" in debug_data:
-            st.json({
-                "elevation": debug_data.get("elevation"),
-                "hourly_keys": list(debug_data["hourly"].keys())[:10],
-                "sample_time": debug_data["hourly"].get("time", [])[:3] if "time" in debug_data["hourly"] else None
-            })
+# Process Response into DataFrames for UI
+df_models = pd.DataFrame()
+snotel_df = pd.DataFrame()
+current_depth = 0.0
+current_swe = 0.0
 
-# Combine data sources
-df_snowiest = st.session_state["raw_model_data"]
-df_nwp = st.session_state["nwp_data"]
+if response and response.points:
+    # Convert UnifiedDataPoints to DataFrame
+    data = []
+    for p in response.points:
+        data.append({
+            "Date": p.timestamp_utc,
+            "Variable": p.variable,
+            "Value": p.value,
+            "Source": p.source,
+            "Quality": p.quality
+        })
 
-# Merge dataframes if both exist
-if not df_nwp.empty and not df_snowiest.empty:
-    df_models = pd.concat([df_snowiest, df_nwp], ignore_index=True)
-elif not df_nwp.empty:
-    df_models = df_nwp
-else:
-    df_models = df_snowiest
+    raw_df = pd.DataFrame(data)
 
-current_swe, current_depth = 0.0, 0.0
-if not snotel_df.empty:
-    snotel_df["Date"] = pd.to_datetime(snotel_df["Date"])
-    latest = snotel_df.sort_values("Date").dropna(subset=["SWE"]).iloc[-1] if not snotel_df.empty else None
-    if latest is not None:
-        current_depth = float(latest.get("Depth", 0) or 0)
-        current_swe   = float(latest.get("SWE", 0) or 0)
+    # 1. Prepare df_models (Forecast Snow)
+    # Filter for Forecast quality and Precp Snow variable
+    forecast_snow = raw_df[
+        (raw_df["Variable"] == VariableType.PRECIP_SNOW) &
+        (raw_df["Quality"].isin([DataQuality.FORECAST, DataQuality.FALLBACK]))
+    ].copy()
+
+    if not forecast_snow.empty:
+        forecast_snow.rename(columns={"Value": "Amount", "Source": "Model"}, inplace=True)
+        # Normalize date to day if needed, or keep hourly?
+        # UI expects 'Date' column.
+        df_models = forecast_snow[["Date", "Model", "Amount"]]
+
+    # 2. Prepare snotel_df (Measured Telemetry)
+    # Filter for Measured quality
+    measured = raw_df[
+        (raw_df["Quality"] == DataQuality.MEASURED)
+    ].copy()
+
+    if not measured.empty:
+        # Pivot to get SWE, Depth, Temp columns
+        # Pivot table requires unique index/columns.
+        # Create a 'Date' column that is just the date part for daily SNOTEL?
+        # Or keep timestamp.
+        # Snotel source is "SNOTEL_ID".
+        # We might have multiple stations.
+        # Let's take the first one or average?
+        # For simplicity, we just use the dataframe as is, but we need columns SWE, Depth, Temp.
+
+        # We need to pivot 'Variable' to columns.
+        pivot_df = measured.pivot_table(index="Date", columns="Variable", values="Value", aggfunc='first').reset_index()
+
+        # Rename columns
+        # Columns might be: VariableType.SWE, VariableType.SNOW_DEPTH, etc.
+        # We map them to string names
+        col_map = {
+            VariableType.SWE: "SWE",
+            VariableType.SNOW_DEPTH: "Depth",
+            VariableType.TEMP_AIR: "Temp"
+        }
+        pivot_df.rename(columns=col_map, inplace=True)
+
+        # Calculate SWE Delta
+        if "SWE" in pivot_df.columns:
+            pivot_df["SWE_Delta"] = pivot_df["SWE"].diff().clip(lower=0)
+
+        snotel_df = pivot_df
+
+        # Get current depth/swe
+        if not snotel_df.empty:
+            latest = snotel_df.sort_values("Date").iloc[-1]
+            current_depth = latest.get("Depth", 0.0)
+            current_swe = latest.get("SWE", 0.0)
 
 # =============================================================================
-# 10. HERO SECTION
+# 6. HERO SECTION
 # =============================================================================
 st.markdown('<div style="height:1rem;"></div>', unsafe_allow_html=True)
 st.markdown("---")
 st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
-# Band selector for NWP data
-band_options = ["Summit", "Mid", "Base"] if "Band" in df_models.columns else ["Summit"]
-selected_band = "Summit"
-if "Band" in df_models.columns:
-    selected_band = st.select_slider(
-        "Elevation Band",
-        options=band_options,
-        value="Summit",
-        help="Select elevation band for forecast (NWP only)"
-    )
-
 metrics = None
 if not df_models.empty:
     all_models = list(df_models["Model"].unique())
-    metrics = get_forecast_metrics_cached(df_models, all_models, current_depth, selected_band)
+    metrics = calculate_forecast_metrics(df_models, all_models, current_depth)
 
 hero_val   = "—"
 hero_label = "NO DATA"
-hero_sub   = "Load demo data, paste Snowiest table, or enable NWP"
+hero_sub   = "System offline or no forecast data"
 
 if metrics:
     if metrics["major_storms"]:
@@ -600,7 +705,6 @@ with h_left:
     """, unsafe_allow_html=True)
 
 with h_right:
-    live_slr = calculate_swe_ratio(noaa_df.iloc[0]["Temp"]) if not noaa_df.empty else 0
     agree_color = ACCENT_TEAL if (metrics and metrics["avg_spread"] < 1.5) else \
                   ACCENT_AMBER if (metrics and metrics["avg_spread"] < 3) else ACCENT_ROSE
     spread_str  = f"{metrics['avg_spread']:.1f}\"" if metrics else "—"
@@ -616,76 +720,22 @@ with h_right:
         st.metric("SWE", f'{current_swe:.2f}"')
     m3, m4 = st.columns(2)
     with m3:
-        st.metric("Live SLR", f"{live_slr}:1")
+        # Live SLR removed as logic is now handled by adapters or simplified
+        st.metric("DAL Status", "ACTIVE")
     with m4:
         st.metric("Model Spread", spread_str)
 
-    # Show data source indicators
-    source_indicators = []
-    if not df_snowiest.empty:
-        source_indicators.append('<span class="pill pill-blue">Snowiest</span>')
-    if not df_nwp.empty:
-        source_indicators.append('<span class="pill pill-teal">NWP Live</span>')
-    
-    st.markdown(
-        f'<div style="margin-top:0.5rem; display: flex; gap: 0.5rem;">{"".join(source_indicators)}</div>',
-        unsafe_allow_html=True
-    )
-    
     st.markdown(
         f'<div style="margin-top:0.5rem; font-size:0.75rem;">'
         f'<span class="live-dot"></span>'
-        f'<span style="color:{ACCENT_TEAL};">Live Telemetry · {conf["elevation"]}</span>'
+        f'<span style="color:{ACCENT_TEAL};">Data Abstraction Layer · {conf["elevation"]}</span>'
         f'</div>',
         unsafe_allow_html=True
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================================================
-# 11. ATMOSPHERIC OUTLOOK
-# =============================================================================
-st.markdown('<div style="height:1.5rem;"></div>', unsafe_allow_html=True)
-st.markdown('<div class="section-label fade-up fade-up-3">Atmospheric Outlook</div>', unsafe_allow_html=True)
-
-if not noaa_df.empty:
-    now_naive = datetime.now()
-    shorts = noaa_df[noaa_df["Time"] > now_naive].head(96).copy()
-
-    if not shorts.empty:
-        shorts["Date"] = shorts["Time"].dt.date
-        daily_noaa = shorts.groupby("Date").agg(
-            Min  =("Temp",     "min"),
-            Max  =("Temp",     "max"),
-            Cond =("Summary",  lambda x: x.mode()[0] if not x.mode().empty else x.iloc[0]),
-            Wind =("Wind",     "max"),
-            SLR  =("SWE_Ratio","mean")
-        ).reset_index().head(4)
-
-        cards_html = '<div class="outlook-strip fade-up fade-up-4">'
-        for _, row in daily_noaa.iterrows():
-            d_str    = row["Date"].strftime("%a %d")
-            is_snow  = "Snow" in str(row["Cond"])
-            pill_cls = "pill-blue" if is_snow else "pill-rose"
-            cond_str = str(row["Cond"])[:18]
-            slr_str  = f"  ·  SLR {row['SLR']:.0f}:1" if is_snow else ""
-            cards_html += f"""
-            <div class="outlook-card">
-                <div style="font-size:0.72rem; letter-spacing:0.06em; text-transform:uppercase;
-                            color:var(--text-muted); margin-bottom:0.4rem;">{d_str}</div>
-                <div style="font-size:1.25rem; font-weight:700; margin-bottom:0.5rem;
-                            color:var(--text-pri);">{row['Max']:.0f}° / {row['Min']:.0f}°</div>
-                <span class="pill {pill_cls}">{cond_str}</span>
-                <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.5rem;">
-                    💨 {row['Wind']:.0f} mph{slr_str}
-                </div>
-            </div>"""
-        cards_html += '</div>'
-        st.markdown(cards_html, unsafe_allow_html=True)
-else:
-    st.caption("NOAA data unavailable")
-
-# =============================================================================
-# 12. ENSEMBLE ANALYSIS (Enhanced with NWP)
+# 7. ENSEMBLE ANALYSIS
 # =============================================================================
 st.markdown('<div style="height:2rem;"></div>', unsafe_allow_html=True)
 st.markdown('<div class="section-label fade-up fade-up-5">Ensemble Analysis</div>', unsafe_allow_html=True)
@@ -694,9 +744,8 @@ if not df_models.empty and metrics:
     ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([2.5, 1, 1, 1], gap="small")
     with ctrl1:
         u_models = sorted(df_models["Model"].unique())
-        default_models = [m for m in u_models if "Average" not in m]
         selected_models = st.multiselect(
-            "Active Models", u_models, default=default_models[:4], label_visibility="collapsed"
+            "Active Models", u_models, default=u_models, label_visibility="collapsed"
         )
     with ctrl2:
         show_ribbon    = st.toggle("Ribbon",    value=True)
@@ -705,48 +754,21 @@ if not df_models.empty and metrics:
     with ctrl4:
         show_extended  = st.toggle("Extended",  value=False)
 
-    if show_extended:
-        st.info(
-            "⚠️ **Extended forecast**: 3‑day ~95% accuracy, 5‑day ~90%, 7‑day 80‑85%, 10‑day+ ~50%. "
-            "(NOAA/NASA) · NWP data includes physics-based SLR calculations."
-        )
-
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
     if selected_models:
-        metrics_sub = get_forecast_metrics_cached(df_models, selected_models, current_depth, selected_band)
+        metrics_sub = calculate_forecast_metrics(df_models, selected_models, current_depth)
 
         if metrics_sub:
             daily_stats = metrics_sub["daily_stats"]
-            noaa_cutoff = noaa_df["Time"].max() if not noaa_df.empty else None
 
             if not show_extended:
-                cutoff = datetime.now() + timedelta(days=7)
+                cutoff = datetime.now().astimezone() + timedelta(days=7)
                 daily_stats = daily_stats[daily_stats["Date"] <= cutoff].copy()
-
-            if len(daily_stats) > 1:
-                date_min = daily_stats["Date"].min().date()
-                date_max = daily_stats["Date"].max().date()
-                slider_range = st.select_slider(
-                    "Storm Window",
-                    options=pd.date_range(date_min, date_max).date.tolist(),
-                    value=(date_min, date_max),
-                    format_func=lambda d: d.strftime("%b %d"),
-                )
-                w_start  = pd.Timestamp(slider_range[0])
-                w_end    = pd.Timestamp(slider_range[1])
-                windowed = daily_stats[
-                    (daily_stats["Date"] >= w_start) & (daily_stats["Date"] <= w_end)
-                ].copy()
-                windowed["cumulative"] = windowed["mean"].cumsum()
-                window_total = windowed["mean"].sum()
-            else:
-                windowed     = daily_stats.copy()
-                window_total = daily_stats["mean"].sum()
 
             sm1, sm2, sm3, sm4 = st.columns(4)
             with sm1:
-                st.metric("Window Total", f'{window_total:.1f}"')
+                st.metric("Window Total", f'{metrics_sub["total_snowfall"]:.1f}"')
             with sm2:
                 st.metric("Best Day", f'{metrics_sub["best_24h_amount"]:.1f}"',
                           delta=metrics_sub["best_24h_date"].strftime("%a %b %d"))
@@ -759,95 +781,25 @@ if not df_models.empty and metrics:
 
             st.markdown('<div class="chart-wrap">', unsafe_allow_html=True)
             fig = build_forecast_figure(
-                stats=windowed, noaa_df=noaa_df,
+                stats=daily_stats,
                 show_spaghetti=show_spaghetti, show_ribbon=show_ribbon,
                 df_models=df_models, selected_models=selected_models,
-                noaa_cutoff_dt=noaa_cutoff, show_extended=show_extended,
-                band_filter=selected_band,
-                is_dark=is_dark
+                show_extended=show_extended
             )
             st.plotly_chart(fig, width='stretch')
             st.markdown('</div>', unsafe_allow_html=True)
-
-    totals = st.session_state["model_totals"]
-    if totals:
-        with st.expander("Snowiest Model Integrity Check"):
-            check = [
-                {
-                    "Model": k, "Table": v["declared"],
-                    "Calc": round(v["calculated"], 1),
-                    "Δ":    round(v["declared"] - v["calculated"], 1),
-                    "OK":   "✅" if abs(v["declared"] - v["calculated"]) < 0.5 else "⚠️"
-                }
-                for k, v in totals.items()
-            ]
-            st.dataframe(pd.DataFrame(check), hide_index=True, width='stretch')
-    
-    # NWP Physics Details
-    if not df_nwp.empty and "Band" in df_nwp.columns:
-        with st.expander("NWP Physics Details"):
-            st.markdown("""
-            **Physics Engine Parameters:**
-            - Lapse Rate: 0.65°C per 100m
-            - Orographic Lift Factor: 0.05 per 100m
-            - Kuchera SLR: 12 + (-2 - temp_c)
-            - DGZ Champaign: 18:1 SLR (Temp -12°C to -18°C, RH >80%)
-            """)
-            
-            latest_nwp = df_nwp[df_nwp["Band"] == selected_band].groupby("Model").last().reset_index()
-            if not latest_nwp.empty:
-                st.dataframe(
-                    latest_nwp[["Model", "Temp_C", "SLR", "Cloud_Cover", "Freezing_Level_m"]].round(1),
-                    hide_index=True,
-                    width='stretch'
-                )
-
 else:
     st.markdown(f"""
     <div style="padding:3rem 2rem; border:1px dashed {BORDER}; border-radius:14px;
                 text-align:center; color:var(--text-muted);">
         <div style="font-size:1.5rem; margin-bottom:0.5rem;">❄</div>
-        <div style="font-size:0.9rem;">No ensemble data — enable NWP in sidebar or paste a Snowiest.app table</div>
+        <div style="font-size:0.9rem;">No forecast data available from DAL</div>
     </div>
     """, unsafe_allow_html=True)
 
-# =============================================================================
-# 13. UPDATE MODEL DATA
-# =============================================================================
-st.markdown('<div style="height:1.5rem;"></div>', unsafe_allow_html=True)
-with st.expander("Update Model Data"):
-    col1, col2 = st.columns(2)
-    with col1:
-        st.link_button(
-            f"↗ Snowiest — {selected_loc}",
-            conf["snowiest_url"],
-            help="Opens Snowiest.app. Copy the table and paste below."
-        )
-    with col2:
-        if st.button("🔄 Refresh NWP Data", help="Clear cache and fetch fresh NWP data"):
-            # Clear cache for this location
-            cache_path = PointForecastEngine.get_cache_path(conf["lat"], conf["lon"])
-            if cache_path.exists():
-                cache_path.unlink()
-            st.cache_data.clear()
-            st.rerun()
-    
-    st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
-    inline_paste = st.text_area(
-        "Or paste Snowiest table here", height=100, label_visibility="collapsed",
-        placeholder="Paste Snowiest table…"
-    )
-    if st.button("Parse", key="inline_parse"):
-        df_p, tots_p = parse_snowiest_raw_text(inline_paste)
-        if not df_p.empty:
-            st.session_state["raw_model_data"] = df_p
-            st.session_state["model_totals"] = tots_p
-            st.rerun()
-        else:
-            st.error("Parse failed — check format")
 
 # =============================================================================
-# 14. SNOTEL VERIFICATION
+# 8. SNOTEL VERIFICATION
 # =============================================================================
 st.markdown('<div style="height:1.5rem;"></div>', unsafe_allow_html=True)
 st.markdown('<div class="section-label">SNOTEL Verification</div>', unsafe_allow_html=True)
@@ -858,11 +810,9 @@ if not snotel_df.empty:
     with sc1:
         st.metric("Current Depth", f'{current_depth:.0f}"')
         st.metric("SWE Total", f'{current_swe:.2f}"')
-        elev_display = f"{grid_elev:,.0f} ft" if grid_elev else conf["elevation"]
-        st.metric("Grid Elevation", elev_display)
 
     with sc2:
-        recent = snotel_df.groupby("Date").mean(numeric_only=True).reset_index().tail(21)
+        recent = snotel_df.sort_values("Date").tail(21)
         fig_s = make_subplots(specs=[[{"secondary_y": True}]])
 
         if "SWE_Delta" in recent.columns:
@@ -907,60 +857,5 @@ if not snotel_df.empty:
         fig_s.update_layout(layout_s)
         fig_s.update_yaxes(title_text="SWE (in)", secondary_y=False)
         st.plotly_chart(fig_s, width='stretch')
-
-    with st.expander("SNOTEL Raw Records"):
-        show_cols = ["Date", "SiteID", "SWE", "SWE_Delta"]
-        if "Depth" in snotel_df.columns:
-            show_cols.append("Depth")
-        if "Temp" in snotel_df.columns:
-            show_cols.append("Temp")
-        disp = snotel_df[show_cols].sort_values("Date", ascending=False).reset_index(drop=True)
-        st.dataframe(disp, hide_index=True, width='stretch', height=240)
-
 else:
-    st.markdown(f"""
-    <div style="padding:1.5rem; border:1px dashed {BORDER}; border-radius:10px;
-                text-align:center; color:var(--text-muted); font-size:0.85rem;">
-        SNOTEL data unavailable
-    </div>
-    """, unsafe_allow_html=True)
-
-# =============================================================================
-# 15. RAW TELEMETRY TABLES
-# =============================================================================
-st.markdown('<div style="height:1rem;"></div>', unsafe_allow_html=True)
-st.markdown('<div class="section-label">Raw Telemetry</div>', unsafe_allow_html=True)
-
-t1, t2, t3 = st.columns(3, gap="large")
-with t1:
-    st.caption("SNOTEL · Last 10 Days")
-    if not snotel_df.empty:
-        show_cols = [c for c in ["Date", "SWE", "Depth", "Temp"] if c in snotel_df.columns]
-        st.dataframe(snotel_df.tail(10)[show_cols], width='stretch', hide_index=True)
-    else:
-        st.info("No SNOTEL data")
-
-with t2:
-    st.caption("Ensemble Daily Statistics")
-    if metrics and "daily_stats" in metrics:
-        disp_cols = [c for c in ["Date", "mean", "min", "max", "cumulative", "std"]
-                     if c in metrics["daily_stats"].columns]
-        st.dataframe(
-            metrics["daily_stats"][disp_cols].round(2),
-            width='stretch', hide_index=True
-        )
-    else:
-        st.info("No forecast data")
-
-with t3:
-    st.caption("NWP Live Data")
-    if not df_nwp.empty and "Band" in df_nwp.columns:
-        latest_nwp = df_nwp[df_nwp["Band"] == "Summit"].groupby("Model").last().reset_index()
-        st.dataframe(
-            latest_nwp[["Model", "Amount", "Temp_C", "SLR"]].round(1),
-            width='stretch', hide_index=True
-        )
-    else:
-        st.info("No NWP data (enable in sidebar)")
-
-st.markdown('<div style="height:3rem;"></div>', unsafe_allow_html=True)
+    st.info("No SNOTEL data available")
