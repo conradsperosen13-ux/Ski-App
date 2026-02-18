@@ -251,6 +251,14 @@ section[data-testid="stSidebar"] {{
     text-transform: uppercase;
     border: 1px solid transparent;
 }}
+.pill-blue  {{ background:rgba(56,189,248,0.1);  color:{{ACCENT_BLUE}};  border-color:rgba(56,189,248,0.2); }}
+.pill-teal  {{ background:rgba(45,212,191,0.1);  color:{{ACCENT_TEAL}};  border-color:rgba(45,212,191,0.2); }}
+.pill-rose  {{ background:rgba(251,113,133,0.1); color:{{ACCENT_ROSE}};  border-color:rgba(251,113,133,0.2); }}
+.pill-amber {{ background:rgba(251,191,36,0.1);  color:{{ACCENT_AMBER}}; border-color:rgba(251,191,36,0.2); }}
+
+.live-dot {{
+    height: 7px; width: 7px;
+    background: {{ACCENT_TEAL}};
 .pill-blue  {{ background:rgba(56,189,248,0.1);  color:{ACCENT_BLUE};  border-color:rgba(56,189,248,0.2); }}
 .pill-teal  {{ background:rgba(45,212,191,0.1);  color:{ACCENT_TEAL};  border-color:rgba(45,212,191,0.2); }}
 .pill-rose  {{ background:rgba(251,113,133,0.1); color:{ACCENT_ROSE};  border-color:rgba(251,113,133,0.2); }}
