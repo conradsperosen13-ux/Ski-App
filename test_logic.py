@@ -4,8 +4,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import json
-import logic
-from logic import (
+import vertical_descent_app.logic_engine as logic
+from vertical_descent_app.logic_engine import (
     PointForecastEngine,
     get_noaa_forecast,
     get_snotel_data,
@@ -45,7 +45,7 @@ class TestLogic(unittest.TestCase):
         self.assertTrue(df_empty.empty)
         self.assertEqual(totals_empty, {})
 
-    @patch('logic.requests.get')
+    @patch('vertical_descent_app.logic_engine.forecasting.requests.get')
     def test_get_noaa_forecast(self, mock_get):
         # Mock point response
         mock_point_resp = MagicMock()
@@ -89,7 +89,7 @@ class TestLogic(unittest.TestCase):
         self.assertEqual(df.iloc[0]["Wind"], 10)
         self.assertEqual(df.iloc[0]["SWE_Ratio"], 12) # 25F -> 12:1
 
-    @patch('logic.requests.get')
+    @patch('vertical_descent_app.logic_engine.forecasting.requests.get')
     def test_get_snotel_data(self, mock_get):
         # Mock HTML response
         html_content = """
@@ -221,9 +221,9 @@ class TestLogic(unittest.TestCase):
         processed_amount = summit_df.iloc[0]["Amount"]
         self.assertGreater(processed_amount, 0.1)
 
-    @patch('logic.PointForecastEngine.read_from_cache')
-    @patch('logic.PointForecastEngine.fetch_api_data')
-    @patch('logic.PointForecastEngine.write_to_cache')
+    @patch('vertical_descent_app.logic_engine.forecasting.PointForecastEngine.read_from_cache')
+    @patch('vertical_descent_app.logic_engine.forecasting.PointForecastEngine.fetch_api_data')
+    @patch('vertical_descent_app.logic_engine.forecasting.PointForecastEngine.write_to_cache')
     def test_get_raw_forecast_data(self, mock_write, mock_fetch, mock_read):
         # Case 1: Cache hit
         mock_read.return_value = {"cached": True}

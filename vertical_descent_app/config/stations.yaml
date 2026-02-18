@@ -1,0 +1,14 @@
+defaults:
+  lookback_hours: 24
+  retry_attempts: 3
+
+stations:
+  - triplet: "1186:CO:SNTL"
+    name: "Winter Park (Middle Fork Camp)"
+    location_id: 1
+  - triplet: "709:CO:SNTL"
+    name: "Steamboat (Dry Lake)"
+    location_id: 2
+  - triplet: "602:CO:SNTL"
+    name: "Arapahoe Basin (Grizzly Peak)"
+    location_id: 3

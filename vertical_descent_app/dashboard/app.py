@@ -6,7 +6,7 @@ import streamlit as st
 import plotly.graph_objects as go
 
 # Import logic from the new module
-from logic import (
+from vertical_descent_app.logic_engine import (
     RESORTS, DEMO_DATA,
     PointForecastEngine, run_async_forecast, get_raw_forecast_data,
     calculate_swe_ratio, get_noaa_forecast as logic_get_noaa_forecast,

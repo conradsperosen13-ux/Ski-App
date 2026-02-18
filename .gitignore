@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.cache/
+truth_engine.db
+venv/
+.env
+.DS_Store
