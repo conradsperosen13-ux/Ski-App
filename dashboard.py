@@ -54,11 +54,11 @@ with st.sidebar:
         'opacity:0.5; margin-bottom:0.75rem;">Data Sources</p>',
         unsafe_allow_html=True
     )
-    
+
     # Add NWP data toggle
     use_nwp = st.toggle("🌐 Live NWP Data (Open-Meteo)", value=True)
     st.session_state["use_nwp"] = use_nwp
-    
+
     paste_input = st.text_area(
         "Paste Snowiest Table",
         height=120,
@@ -122,26 +122,26 @@ st.markdown(f"""
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500;600;800&display=swap');
 
 :root {{
-  --bg-base:       {BG_BASE};
-  --bg-card:       {BG_CARD};
-  --bg-card-hover: {BG_CARD_HOVER};
-  --border:        {BORDER};
-  --border-hover:  {BORDER_HOVER};
-  --text-pri:      {TEXT_PRI};
-  --text-sec:      {TEXT_SEC};
-  --text-muted:    {TEXT_MUTED};
-  --shadow:        {SHADOW};
-  --shadow-hover:  {SHADOW_HOVER};
-  --accent-blue:   {ACCENT_BLUE};
-  --accent-teal:   {ACCENT_TEAL};
-  --accent-rose:   {ACCENT_ROSE};
-  --accent-amber:  {ACCENT_AMBER};
+  --bg-base:       {{BG_BASE}};
+  --bg-card:       {{BG_CARD}};
+  --bg-card-hover: {{BG_CARD_HOVER}};
+  --border:        {{BORDER}};
+  --border-hover:  {{BORDER_HOVER}};
+  --text-pri:      {{TEXT_PRI}};
+  --text-sec:      {{TEXT_SEC}};
+  --text-muted:    {{TEXT_MUTED}};
+  --shadow:        {{SHADOW}};
+  --shadow-hover:  {{SHADOW_HOVER}};
+  --accent-blue:   {{ACCENT_BLUE}};
+  --accent-teal:   {{ACCENT_TEAL}};
+  --accent-rose:   {{ACCENT_ROSE}};
+  --accent-amber:  {{ACCENT_AMBER}};
   --font-display:  'Inter', sans-serif;
   --font-mono:     'JetBrains Mono', monospace;
   --radius-sm:     8px;
   --radius-md:     14px;
-  --blur:          {BLUR_AMOUNT};
-  --noise-opacity: {NOISE_OPACITY};
+  --blur:          {{BLUR_AMOUNT}};
+  --noise-opacity: {{NOISE_OPACITY}};
 }}
 
 html, body, [class*="css"] {{
@@ -158,7 +158,7 @@ html, body, [class*="css"] {{
 }}
 
 section[data-testid="stSidebar"] {{
-    background: {SIDEBAR_BG} !important;
+    background: {{SIDEBAR_BG}} !important;
     backdrop-filter: blur(24px) !important;
     -webkit-backdrop-filter: blur(24px) !important;
     border-right: 1px solid var(--border) !important;
@@ -202,7 +202,7 @@ section[data-testid="stSidebar"] {{
     font-size: clamp(3.5rem, 6vw, 5.5rem);
     font-weight: 800;
     line-height: 1;
-    background: linear-gradient(160deg, {TEXT_PRI} 30%, {TEXT_SEC});
+    background: linear-gradient(160deg, {{TEXT_PRI}} 30%, {{TEXT_SEC}});
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.04em;
@@ -251,14 +251,14 @@ section[data-testid="stSidebar"] {{
     text-transform: uppercase;
     border: 1px solid transparent;
 }}
-.pill-blue  {{ background:rgba(56,189,248,0.1);  color:{ACCENT_BLUE};  border-color:rgba(56,189,248,0.2); }}
-.pill-teal  {{ background:rgba(45,212,191,0.1);  color:{ACCENT_TEAL};  border-color:rgba(45,212,191,0.2); }}
-.pill-rose  {{ background:rgba(251,113,133,0.1); color:{ACCENT_ROSE};  border-color:rgba(251,113,133,0.2); }}
-.pill-amber {{ background:rgba(251,191,36,0.1);  color:{ACCENT_AMBER}; border-color:rgba(251,191,36,0.2); }}
+.pill-blue  {{ background:rgba(56,189,248,0.1);  color:{{ACCENT_BLUE}};  border-color:rgba(56,189,248,0.2); }}
+.pill-teal  {{ background:rgba(45,212,191,0.1);  color:{{ACCENT_TEAL}};  border-color:rgba(45,212,191,0.2); }}
+.pill-rose  {{ background:rgba(251,113,133,0.1); color:{{ACCENT_ROSE}};  border-color:rgba(251,113,133,0.2); }}
+.pill-amber {{ background:rgba(251,191,36,0.1);  color:{{ACCENT_AMBER}}; border-color:rgba(251,191,36,0.2); }}
 
 .live-dot {{
     height: 7px; width: 7px;
-    background: {ACCENT_TEAL};
+    background: {{ACCENT_TEAL}};
     border-radius: 50%;
     display: inline-block;
     margin-right: 5px;
@@ -311,13 +311,13 @@ section[data-testid="stSidebar"] {{
     font-size: 0.68rem !important;
     text-transform: uppercase !important;
     letter-spacing: 0.1em !important;
-    color: {METRIC_LABEL_COLOR} !important;
+    color: {{METRIC_LABEL_COLOR}} !important;
     font-weight: 600 !important;
 }}
 [data-testid="stMetricValue"] > div {{
     font-size: 1.6rem !important;
     font-weight: 700 !important;
-    color: {METRIC_VAL_COLOR} !important;
+    color: {{METRIC_VAL_COLOR}} !important;
 }}
 [data-testid="stMetricDelta"] {{
     display: none !important;
@@ -362,8 +362,8 @@ section[data-testid="stSidebar"] {{
 }}
 .stButton > button:hover {{
     background: rgba(56,189,248,0.08) !important;
-    border-color: {ACCENT_BLUE} !important;
-    color: {ACCENT_BLUE} !important;
+    border-color: {{ACCENT_BLUE}} !important;
+    color: {{ACCENT_BLUE}} !important;
 }}
 .stToggle label span, .stCheckbox label {{ color: var(--text-sec) !important; }}
 .stDataFrame {{ border: 1px solid var(--border) !important; border-radius: var(--radius-sm) !important; }}
@@ -478,15 +478,14 @@ RESORTS = {
 # =============================================================================
 
 # Debug function - at top level, NOT inside any class
-@st.cache_data(ttl=0)  # No cache for debugging
 def debug_nwp_api(lat, lon):
     """Debug function to see raw API response"""
     import requests
     models_list = [
-        "ecmwf_ifs04", "gfs_seamless", "jma_seamless", 
+        "ecmwf_ifs04", "gfs_seamless", "jma_seamless",
         "icon_seamless", "gem_global", "meteofrance_seamless"
     ]
-    
+
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": lat,
@@ -496,30 +495,13 @@ def debug_nwp_api(lat, lon):
         "precipitation_unit": "inch",
         "timezone": "America/Denver"
     }
-    
+
     try:
         response = requests.get(url, params=params, timeout=15)
         response.raise_for_status()
-        data = response.json()
-        
-        # Print debug info
-        st.sidebar.write("✅ NWP API Connected")
-        if "hourly" in data:
-            st.sidebar.write(f"Hours: {len(data['hourly'].get('time', []))}")
-            # Show available keys
-            keys = list(data['hourly'].keys())
-            st.sidebar.write(f"Keys: {keys[:5]}...")  # First 5 keys
-            
-            # Check for model data
-            model_keys = [k for k in keys if any(m in k for m in ['ecmwf', 'gfs', 'jma', 'icon', 'gem'])]
-            st.sidebar.write(f"Models found: {len(model_keys)}")
-            
-            return data
-        else:
-            st.sidebar.error("No hourly data in response")
-            return None
+        return response.json()
     except Exception as e:
-        st.sidebar.error(f"API Error: {str(e)}")
+        logger.error(f"Debug NWP API error: {e}")
         return None
 
 class PointForecastEngine:
@@ -527,10 +509,10 @@ class PointForecastEngine:
     Enterprise-Grade Numerical Weather Prediction (NWP) Processor.
     Integrated into Summit Terminal dashboard.
     """
-    
+
     LAPSE_RATE_C_PER_100M = 0.65
-    OROGRAPHIC_LIFT_FACTOR = 0.05 
-    
+    OROGRAPHIC_LIFT_FACTOR = 0.05
+
     MODEL_DISPLAY_MAP = {
         "ecmwf_ifs04": "ECMWF", "gfs_seamless": "GFS",
         "jma_seamless": "JMA", "icon_seamless": "ICON",
@@ -548,11 +530,11 @@ class PointForecastEngine:
         path = cls.get_cache_path(lat, lon)
         if not path.exists():
             return None
-        
+
         last_modified = path.stat().st_mtime
         if (time.time() - last_modified) > CACHE_TTL_SECONDS:
             return None
-            
+
         try:
             with open(path, "r") as f:
                 return json.load(f)
@@ -571,10 +553,10 @@ class PointForecastEngine:
     @staticmethod
     async def fetch_api_data(lat: float, lon: float) -> Optional[Dict]:
         models_list = [
-            "ecmwf_ifs04", "gfs_seamless", "jma_seamless", 
+            "ecmwf_ifs04", "gfs_seamless", "jma_seamless",
             "icon_seamless", "gem_global", "meteofrance_seamless"
         ]
-        
+
         url = "https://api.open-meteo.com/v1/forecast"
         params = {
             "latitude": lat,
@@ -609,44 +591,44 @@ class PointForecastEngine:
             if not data:
                 logger.error(f"[{resort_name}] No data provided")
                 return pd.DataFrame()
-                
+
             hourly = data.get("hourly", {})
-            
+
             if not hourly:
                 logger.error(f"[{resort_name}] No hourly data in response")
                 return pd.DataFrame()
-            
+
             if "time" not in hourly or not hourly["time"]:
                 logger.error(f"[{resort_name}] No time data in response")
                 return pd.DataFrame()
-            
+
             times = pd.to_datetime(hourly["time"])
             if len(times) == 0:
                 logger.error(f"[{resort_name}] Empty time array")
                 return pd.DataFrame()
-                
+
             times = times.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
-            
+
             model_elev_m = data.get("elevation", 0)
             if model_elev_m is None:
                 model_elev_m = 0
                 logger.warning(f"[{resort_name}] No elevation in response, using 0")
-            
+
             # Define Bands
             base_m = elev_config["base"] * 0.3048
             peak_m = elev_config["peak"] * 0.3048
             mid_m = (base_m + peak_m) / 2.0
             bands = {"Base": base_m, "Mid": mid_m, "Summit": peak_m}
 
-            df_list = []
-            
+            records = []
+
             for model_id, model_label in cls.MODEL_DISPLAY_MAP.items():
                 p_key = f"precipitation_{model_id}"
                 t_key = f"temperature_2m_{model_id}"
                 rh_key = f"relative_humidity_700hPa_{model_id}"
                 cloud_key = f"cloud_cover_{model_id}"
                 fl_key = f"freezing_level_height_{model_id}"
-                
+
                 # Check if all required keys exist
                 if all(k in hourly for k in [p_key, t_key, rh_key, cloud_key, fl_key]):
                     try:
@@ -656,75 +638,76 @@ class PointForecastEngine:
                         rh_700 = hourly[rh_key]
                         cloud_cover = hourly[cloud_key]
                         freezing_level = hourly[fl_key]
-                        
+
                         # Check if any are None or empty
                         if not all([precip_raw, temp_raw_c, rh_700, cloud_cover, freezing_level]):
                             logger.debug(f"[{resort_name}] Some data empty for {model_label}")
                             continue
-                        
+
                         # Convert to numpy arrays, replacing None with 0
                         precip_raw = np.array([x if x is not None else 0 for x in precip_raw], dtype=float)
                         temp_raw_c = np.array([x if x is not None else 0 for x in temp_raw_c], dtype=float)
                         rh_700 = np.array([x if x is not None else 0 for x in rh_700], dtype=float)
                         cloud_cover = np.array([x if x is not None else 0 for x in cloud_cover], dtype=float)
                         freezing_level = np.array([x if x is not None else 0 for x in freezing_level], dtype=float)
-                        
+
                         # Ensure same length as times
                         if len(precip_raw) != len(times):
                             logger.warning(f"[{resort_name}] Length mismatch for {model_label}")
                             continue
-                        
+
                         for band_name, target_elev_m in bands.items():
                             delta_z_m = target_elev_m - model_elev_m
                             temp_adj_c = temp_raw_c - (cls.LAPSE_RATE_C_PER_100M * (delta_z_m / 100.0))
                             lift_multiplier = 1.0 + cls.OROGRAPHIC_LIFT_FACTOR * (np.maximum(0, delta_z_m) / 100.0)
                             precip_adj = precip_raw * lift_multiplier
-                            
+
                             # Ensure no negative precipitation
                             precip_adj = np.maximum(0, precip_adj)
-                            
+
                             # Dynamic SLR calculations
                             is_rain = temp_adj_c > 1.0
                             is_wet_snow = (temp_adj_c <= 1.0) & (temp_adj_c > -3.0)
                             is_dgz_champagne = (temp_adj_c <= -12.0) & (temp_adj_c >= -18.0) & (rh_700 >= 80.0)
-                            
+
                             # Kuchera SLR approximation
-                            kuchera_ratio = np.clip(12.0 + (-2.0 - temp_adj_c), 8.0, 30.0) 
-                            
+                            kuchera_ratio = np.clip(12.0 + (-2.0 - temp_adj_c), 8.0, 30.0)
+
                             slr = np.select(
                                 [is_rain, is_wet_snow, is_dgz_champagne],
-                                [0.0, 8.0, 20.0], 
+                                [0.0, 8.0, 20.0],
                                 default=kuchera_ratio
                             )
-                            
+
                             # Calculate snow amount (convert to inches)
                             snow_amount = precip_adj * slr
-                            
-                            df_list.append(pd.DataFrame({
-                                "Date": times,
-                                "Model": model_label,
-                                "Band": band_name,
-                                "Amount": snow_amount,
-                                "Temp_C": temp_adj_c,
-                                "SLR": slr,
-                                "Cloud_Cover": cloud_cover,
-                                "Freezing_Level_m": freezing_level,
-                                "IsHistory": False,
-                                "Source": "NWP"
-                            }))
+
+                            for i in range(len(times)):
+                                records.append({
+                                    "Date": times[i],
+                                    "Model": model_label,
+                                    "Band": band_name,
+                                    "Amount": snow_amount[i],
+                                    "Temp_C": temp_adj_c[i],
+                                    "SLR": slr[i],
+                                    "Cloud_Cover": cloud_cover[i],
+                                    "Freezing_Level_m": freezing_level[i],
+                                    "IsHistory": False,
+                                    "Source": "NWP"
+                                })
                     except Exception as e:
                         logger.error(f"[{resort_name}] Error processing {model_label}: {e}")
                         continue
                 else:
                     missing = [k for k in [p_key, t_key, rh_key, cloud_key, fl_key] if k not in hourly]
                     logger.debug(f"[{resort_name}] Skipping {model_label} due to missing keys: {missing}")
-            
-            if not df_list:
+
+            if not records:
                 logger.warning(f"[{resort_name}] No valid model data processed")
                 return pd.DataFrame()
-                
-            result = pd.concat(df_list, ignore_index=True)
-            logger.info(f"[{resort_name}] Processed {len(result)} rows from {len(df_list)} models")
+
+            result = pd.DataFrame(records)
+            logger.info(f"[{resort_name}] Processed {len(result)} rows")
             return result
 
         except Exception as e:
@@ -747,7 +730,7 @@ class PointForecastEngine:
             data = await cls.fetch_api_data(lat, lon)
             if data:
                 cls.write_to_cache(lat, lon, data)
-        
+
         if not data:
             logger.warning(f"[{resort_name}] No data returned from API/Cache.")
             return pd.DataFrame()
@@ -762,17 +745,27 @@ def run_async_forecast(lat: float, lon: float, elev_config: Dict[str, int], reso
     """
     Synchronous wrapper for running async forecast in Streamlit.
     """
+    loop = None
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         result = loop.run_until_complete(
             PointForecastEngine.get_forecast_async(lat, lon, elev_config, resort_name)
         )
-        loop.close()
         return result
+    except RuntimeError as e:
+        # Handle case where loop is already closed or other runtime errors
+        logger.error(f"Async error: {e}")
+        return pd.DataFrame()
     except Exception as e:
         logger.error(f"Error running async forecast: {e}")
         return pd.DataFrame()
+    finally:
+        if loop:
+            try:
+                loop.close()
+            except:
+                pass
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_nwp_forecast(lat: float, lon: float, elev_config: Dict[str, int], resort_name: str) -> pd.DataFrame:
@@ -791,22 +784,9 @@ def calculate_swe_ratio(temp_f):
             return ratio
     return DEFAULT_COLD_RATIO
 
-_NOAA_CACHE = {"df": None, "elev": 0, "timestamp": None}
-
-def _cache_noaa(df, elev):
-    _NOAA_CACHE["df"] = df
-    _NOAA_CACHE["elev"] = elev
-    _NOAA_CACHE["timestamp"] = datetime.now()
-
-def _get_cached_noaa():
-    if _NOAA_CACHE["df"] is not None:
-        age = (datetime.now() - _NOAA_CACHE["timestamp"]).total_seconds()
-        if age < 21600:
-            return _NOAA_CACHE["df"], _NOAA_CACHE["elev"]
-    return None
-
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_noaa_forecast(lat, lon, retries=3):
+def _fetch_noaa(lat, lon):
+    retries = 3
     for attempt in range(retries):
         try:
             point_resp = requests.get(
@@ -817,8 +797,7 @@ def get_noaa_forecast(lat, lon, retries=3):
             prop = point_resp.json().get("properties", {})
             forecast_url = prop.get("forecastHourly")
             if not forecast_url:
-                cached = _get_cached_noaa()
-                return cached if cached else (pd.DataFrame(), 0)
+                raise ValueError("No forecast URL found")
 
             forecast_resp = requests.get(forecast_url, headers=API_HEADERS, timeout=API_TIMEOUT)
             forecast_resp.raise_for_status()
@@ -838,7 +817,7 @@ def get_noaa_forecast(lat, lon, retries=3):
                     except:
                         wind_speed = 0
                 data.append({
-                    "Time": pd.to_datetime(p["startTime"]).tz_convert("UTC").tz_localize(None),
+                    "Time": pd.to_datetime(p["startTime"]).tz_convert("America/Denver"),
                     "Temp": temp_f,
                     "Humidity": p["relativeHumidity"]["value"],
                     "Wind": wind_speed,
@@ -846,7 +825,6 @@ def get_noaa_forecast(lat, lon, retries=3):
                     "Summary": p["shortForecast"]
                 })
             df = pd.DataFrame(data)
-            _cache_noaa(df, elevation_ft)
             return df, elevation_ft
 
         except Exception as e:
@@ -854,11 +832,20 @@ def get_noaa_forecast(lat, lon, retries=3):
             if attempt < retries - 1:
                 time.sleep(2 ** attempt)
             else:
-                cached = _get_cached_noaa()
-                if cached:
-                    st.warning("Using cached NOAA data (live unavailable)")
-                    return cached
-                return pd.DataFrame(), 0
+                raise e
+
+def get_noaa_forecast(lat, lon, retries=3):
+    if "last_noaa" not in st.session_state:
+        st.session_state["last_noaa"] = (pd.DataFrame(), 0)
+
+    try:
+        df, elev = _fetch_noaa(lat, lon)
+        st.session_state["last_noaa"] = (df, elev)
+        return df, elev
+    except Exception as e:
+        logger.error(f"NOAA fetch failed: {e}")
+        st.warning("Using previously cached NOAA data (live unavailable)")
+        return st.session_state["last_noaa"]
 
 def _fetch_single_snotel(sid, retries=3):
     primary_url = (
@@ -874,63 +861,64 @@ def _fetch_single_snotel(sid, retries=3):
         "name/-30,0/WTEQ::value,SNWD::value,TAVG::value"
     ).format(sid)
 
-    for attempt in range(retries):
-        for url in [primary_url, fallback_url]:
-            try:
-                resp = requests.get(url, timeout=API_TIMEOUT, headers=API_HEADERS)
-                resp.raise_for_status()
-                tables = pd.read_html(StringIO(resp.text))
+    with requests.Session() as session:
+        for attempt in range(retries):
+            for url in [primary_url, fallback_url]:
+                try:
+                    resp = session.get(url, timeout=API_TIMEOUT, headers=API_HEADERS)
+                    resp.raise_for_status()
+                    tables = pd.read_html(StringIO(resp.text))
 
-                df = None
-                for tbl in tables:
-                    cols = [str(c).upper() for c in tbl.columns]
-                    if any('DATE' in c for c in cols) and any('WTEQ' in c or 'WATER' in c for c in cols):
-                        df = tbl
-                        break
-                if df is None:
-                    df = next((t for t in tables if not t.empty), pd.DataFrame())
-                if df.empty:
+                    df = None
+                    for tbl in tables:
+                        cols = [str(c).upper() for c in tbl.columns]
+                        if any('DATE' in c for c in cols) and any('WTEQ' in c or 'WATER' in c for c in cols):
+                            df = tbl
+                            break
+                    if df is None:
+                        df = next((t for t in tables if not t.empty), pd.DataFrame())
+                    if df.empty:
+                        continue
+
+                    def find_column(df, possible_names, exclude_median_pct=True):
+                        for col in df.columns:
+                            col_upper = str(col).upper()
+                            for name in possible_names:
+                                if name.upper() in col_upper:
+                                    if exclude_median_pct and ('MEDIAN' in col_upper or 'PCT' in col_upper):
+                                        continue
+                                    return col
+                        return None
+
+                    date_col = find_column(df, ['Date'])
+                    if date_col is None:
+                        continue
+                    df.rename(columns={date_col: 'Date'}, inplace=True)
+
+                    swe_col = find_column(df, ['WTEQ', 'Snow Water Equivalent', 'SWE'], exclude_median_pct=True)
+                    if swe_col is None:
+                        continue
+                    df.rename(columns={swe_col: 'SWE'}, inplace=True)
+
+                    depth_col = find_column(df, ['SNWD', 'Snow Depth'], exclude_median_pct=False)
+                    if depth_col:
+                        df.rename(columns={depth_col: 'Depth'}, inplace=True)
+
+                    temp_col = find_column(df, ['TAVG', 'Temperature Average'], exclude_median_pct=False)
+                    if temp_col:
+                        df.rename(columns={temp_col: 'Temp'}, inplace=True)
+
+                    if 'Date' not in df.columns or 'SWE' not in df.columns:
+                        continue
+
+                    df["Date"] = pd.to_datetime(df["Date"])
+                    df["SWE_Delta"] = df["SWE"].diff().clip(lower=0)
+                    df["SiteID"] = str(sid)
+                    return df
+
+                except Exception as e:
+                    logger.warning(f"SNOTEL {sid} failed: {e}")
                     continue
-
-                def find_column(df, possible_names, exclude_median_pct=True):
-                    for col in df.columns:
-                        col_upper = str(col).upper()
-                        for name in possible_names:
-                            if name.upper() in col_upper:
-                                if exclude_median_pct and ('MEDIAN' in col_upper or 'PCT' in col_upper):
-                                    continue
-                                return col
-                    return None
-
-                date_col = find_column(df, ['Date'])
-                if date_col is None:
-                    continue
-                df.rename(columns={date_col: 'Date'}, inplace=True)
-
-                swe_col = find_column(df, ['WTEQ', 'Snow Water Equivalent', 'SWE'], exclude_median_pct=True)
-                if swe_col is None:
-                    continue
-                df.rename(columns={swe_col: 'SWE'}, inplace=True)
-
-                depth_col = find_column(df, ['SNWD', 'Snow Depth'], exclude_median_pct=False)
-                if depth_col:
-                    df.rename(columns={depth_col: 'Depth'}, inplace=True)
-
-                temp_col = find_column(df, ['TAVG', 'Temperature Average'], exclude_median_pct=False)
-                if temp_col:
-                    df.rename(columns={temp_col: 'Temp'}, inplace=True)
-
-                if 'Date' not in df.columns or 'SWE' not in df.columns:
-                    continue
-
-                df["Date"] = pd.to_datetime(df["Date"])
-                df["SWE_Delta"] = df["SWE"].diff().clip(lower=0)
-                df["SiteID"] = str(sid)
-                return df
-
-            except Exception as e:
-                logger.warning(f"SNOTEL {sid} failed: {e}")
-                continue
 
         if attempt < retries - 1:
             time.sleep(2 ** attempt)
@@ -1001,8 +989,11 @@ def _parse_model_line(line, headers, is_history, model_totals):
         daily_sum += amount
         date_str = _calculate_date(day_val, is_history)
         if date_str:
+            # Create naive datetime at midnight and then localize
+            dt = pd.Timestamp(date_str).tz_localize(None)
+            dt = dt.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
             observations.append({
-                "Date": pd.to_datetime(date_str),
+                "Date": dt,
                 "Amount": amount,
                 "Model": model_name,
                 "IsHistory": is_history,
@@ -1061,17 +1052,16 @@ def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band
         return None
 
     filtered = df_models[
-        (df_models["Model"].isin(selected_models)) & 
+        (df_models["Model"].isin(selected_models)) &
         (df_models["Band"] == band_filter)
     ] if "Band" in df_models.columns else df_models[df_models["Model"].isin(selected_models)]
-    
+
     # Get the timezone from the data (if available)
-    if not filtered.empty and filtered["Date"].dt.tz is not None:
+    if not filtered.empty and hasattr(filtered["Date"].dt, "tz") and filtered["Date"].dt.tz is not None:
         tz = filtered["Date"].dt.tz
     else:
-        # Fallback to a default (should not happen, but just in case)
         tz = pytz.timezone('America/Denver')
-    now = pd.Timestamp.now(tz=tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    now = pd.Timestamp.now(tz=tz).normalize()
     future = filtered[filtered["Date"] >= now]
 
     if future.empty:
@@ -1157,21 +1147,21 @@ def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
 
     if show_spaghetti and not df_models.empty:
         filtered = df_models[
-            (df_models["Model"].isin(selected_models)) & 
+            (df_models["Model"].isin(selected_models)) &
             (df_models["Band"] == band_filter)
         ] if "Band" in df_models.columns else df_models[df_models["Model"].isin(selected_models)]
-        
-        if not df_models.empty and "Date" in df_models.columns and df_models["Date"].dt.tz is not None:
+
+        if not df_models.empty and "Date" in df_models.columns and hasattr(df_models["Date"].dt, "tz") and df_models["Date"].dt.tz is not None:
             tz = df_models["Date"].dt.tz
         else:
             tz = pytz.timezone('America/Denver')
-        now_dt = pd.Timestamp.now(tz=tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        now_dt = pd.Timestamp.now(tz=tz).normalize()
         colors = ["rgba(251,113,133,0.55)", "rgba(251,191,36,0.55)",
                   "rgba(45,212,191,0.55)", "rgba(196,181,253,0.55)",
                   "rgba(134,239,172,0.55)", "rgba(249,168,212,0.55)"]
         for i, mdl in enumerate(selected_models):
             m_df = filtered[
-                (filtered["Model"] == mdl) & 
+                (filtered["Model"] == mdl) &
                 (filtered["Date"] >= now_dt)
             ]
             if not m_df.empty:
@@ -1261,6 +1251,8 @@ if "nwp_data" not in st.session_state:
     st.session_state["nwp_data"] = pd.DataFrame()
 if "use_nwp" not in st.session_state:
     st.session_state["use_nwp"] = True
+if "last_noaa" not in st.session_state:
+    st.session_state["last_noaa"] = (pd.DataFrame(), 0)
 
 if from_paste and paste_input.strip():
     df_p, tots_p = parse_snowiest_raw_text(paste_input)
@@ -1293,7 +1285,7 @@ conf = RESORTS[selected_loc]
 with st.spinner(f"Syncing {selected_loc}…"):
     noaa_df, grid_elev = get_noaa_forecast(conf["lat"], conf["lon"])
     snotel_df = get_snotel_data(conf["snotel_ids"])
-    
+
     # Fetch NWP data if enabled
     if st.session_state["use_nwp"]:
         with st.spinner("Fetching live NWP ensemble..."):
@@ -1301,7 +1293,7 @@ with st.spinner(f"Syncing {selected_loc}…"):
             st.session_state["nwp_data"] = nwp_df
     else:
         st.session_state["nwp_data"] = pd.DataFrame()
-    
+
     if st.session_state["raw_model_data"].empty:
         demo_df, demo_tots = parse_snowiest_raw_text(DEMO_DATA)
         st.session_state["raw_model_data"] = demo_df
@@ -1312,6 +1304,8 @@ if st.session_state["use_nwp"]:
     with st.expander("🔧 NWP Debug Info", expanded=False):
         debug_data = debug_nwp_api(conf["lat"], conf["lon"])
         if debug_data and "hourly" in debug_data:
+            st.write("✅ NWP API Connected")
+            st.write(f"Hours: {len(debug_data['hourly'].get('time', []))}")
             st.json({
                 "elevation": debug_data.get("elevation"),
                 "hourly_keys": list(debug_data["hourly"].keys())[:10],
@@ -1349,10 +1343,10 @@ st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 band_options = ["Summit", "Mid", "Base"] if "Band" in df_models.columns else ["Summit"]
 selected_band = "Summit"
 if "Band" in df_models.columns:
-    selected_band = st.select_slider(
+    selected_band = st.selectbox(
         "Elevation Band",
         options=band_options,
-        value="Summit",
+        index=0,
         help="Select elevation band for forecast (NWP only)"
     )
 
@@ -1422,12 +1416,12 @@ with h_right:
         source_indicators.append('<span class="pill pill-blue">Snowiest</span>')
     if not df_nwp.empty:
         source_indicators.append('<span class="pill pill-teal">NWP Live</span>')
-    
+
     st.markdown(
         f'<div style="margin-top:0.5rem; display: flex; gap: 0.5rem;">{"".join(source_indicators)}</div>',
         unsafe_allow_html=True
     )
-    
+
     st.markdown(
         f'<div style="margin-top:0.5rem; font-size:0.75rem;">'
         f'<span class="live-dot"></span>'
@@ -1577,7 +1571,7 @@ if not df_models.empty and metrics:
                 for k, v in totals.items()
             ]
             st.dataframe(pd.DataFrame(check), hide_index=True, width='stretch')
-    
+
     # NWP Physics Details
     if not df_nwp.empty and "Band" in df_nwp.columns:
         with st.expander("NWP Physics Details"):
@@ -1588,7 +1582,7 @@ if not df_models.empty and metrics:
             - Kuchera SLR: 12 + (-2 - temp_c)
             - DGZ Champaign: 18:1 SLR (Temp -12°C to -18°C, RH >80%)
             """)
-            
+
             latest_nwp = df_nwp[df_nwp["Band"] == selected_band].groupby("Model").last().reset_index()
             if not latest_nwp.empty:
                 st.dataframe(
@@ -1626,7 +1620,7 @@ with st.expander("Update Model Data"):
                 cache_path.unlink()
             st.cache_data.clear()
             st.rerun()
-    
+
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
     inline_paste = st.text_area(
         "Or paste Snowiest table here", height=100, label_visibility="collapsed",
