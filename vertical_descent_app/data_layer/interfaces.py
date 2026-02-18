@@ -4,7 +4,7 @@ import math
 import re
 import logging
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from aiobreaker import CircuitBreaker
 from typing import List, Optional, Dict
 import pandas as pd
@@ -59,7 +59,7 @@ class SnotelSource(WeatherSource):
         if not resort:
             return ForecastResponse(
                 location_id=f"{lat},{lon}",
-                generated_at=datetime.utcnow(),
+                generated_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 points=[],
                 status="NO_STATION_FOUND"
             )
@@ -143,7 +143,7 @@ class SnotelSource(WeatherSource):
 
         return ForecastResponse(
             location_id=f"{lat},{lon}",
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc).replace(tzinfo=None),
             points=points,
             status="OK" if points else "PARTIAL_FAILURE"
         )
@@ -220,7 +220,7 @@ class OpenMeteoAdapter(WeatherSource):
 
         return ForecastResponse(
             location_id=f"{lat},{lon}",
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc).replace(tzinfo=None),
             points=points,
             status="OK"
         )
@@ -268,7 +268,7 @@ class NOAAAdapter(WeatherSource):
 
         return ForecastResponse(
             location_id=f"{lat},{lon}",
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc).replace(tzinfo=None),
             points=points,
             status="OK"
         )
@@ -363,7 +363,7 @@ class ClimatologyAdapter(WeatherSource):
 
         return ForecastResponse(
             location_id=f"{lat},{lon}",
-            generated_at=datetime.utcnow(),
+            generated_at=datetime.now(timezone.utc).replace(tzinfo=None),
             points=points,
             status="FALLBACK_CLIMATOLOGY"
         )
