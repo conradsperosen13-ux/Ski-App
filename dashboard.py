@@ -51,7 +51,7 @@ with st.sidebar:
         'opacity:0.5; margin-bottom:0.75rem;">Data Sources</p>',
         unsafe_allow_html=True
     )
-    
+
     # Add NWP data toggle
     use_nwp = st.toggle("🌐 Live NWP Data (Open-Meteo)", value=True)
     st.session_state["use_nwp"] = use_nwp
