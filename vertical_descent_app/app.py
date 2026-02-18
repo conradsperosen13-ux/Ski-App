@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from data_layer.manager import DataManager
 from data_layer.config import RESORTS
@@ -571,8 +571,8 @@ manager = DataManager()
 # Run Data Fetching via Asyncio
 @st.cache_data(ttl=60) # Short cache on UI side, let DAL handle SWR
 def fetch_data_via_dal(lat, lon):
-    start = datetime.utcnow() - timedelta(days=5) # 5 days history
-    end = datetime.utcnow() + timedelta(days=10) # 10 days forecast
+    start = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=5) # 5 days history
+    end = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=10) # 10 days forecast
 
     try:
         response = asyncio.run(manager.get_forecast(lat, lon, start, end))
