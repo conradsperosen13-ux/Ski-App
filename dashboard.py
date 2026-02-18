@@ -453,6 +453,7 @@ RESORTS = {
     "Winter Park": {
         "lat": 39.8859, "lon": -105.764,
         "snotel_ids": [1186, 335],
+        "state": "CO",
         "snowiest_url": "https://www.snowiest.app/winter-park/snow-forecasts",
         "elevation": "9,000 – 12,060 ft",
         "elev_ft": {"base": 9000, "peak": 12060}
@@ -460,6 +461,7 @@ RESORTS = {
     "Steamboat": {
         "lat": 40.4855, "lon": -106.8336,
         "snotel_ids": [457, 709, 825],
+        "state": "CO",
         "snowiest_url": "https://www.snowiest.app/steamboat/snow-forecasts",
         "elevation": "6,900 – 10,568 ft",
         "elev_ft": {"base": 6900, "peak": 10568}
@@ -467,6 +469,7 @@ RESORTS = {
     "Arapahoe Basin": {
         "lat": 39.6419, "lon": -105.8753,
         "snotel_ids": [602, 505],
+        "state": "CO",
         "snowiest_url": "https://www.snowiest.app/arapahoe-basin/snow-forecasts",
         "elevation": "10,780 – 13,050 ft",
         "elev_ft": {"base": 10780, "peak": 13050}
@@ -763,13 +766,9 @@ def run_async_forecast(lat: float, lon: float, elev_config: Dict[str, int], reso
     Synchronous wrapper for running async forecast in Streamlit.
     """
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(
+        return asyncio.run(
             PointForecastEngine.get_forecast_async(lat, lon, elev_config, resort_name)
         )
-        loop.close()
-        return result
     except Exception as e:
         logger.error(f"Error running async forecast: {e}")
         return pd.DataFrame()
@@ -860,19 +859,19 @@ def get_noaa_forecast(lat, lon, retries=3):
                     return cached
                 return pd.DataFrame(), 0
 
-def _fetch_single_snotel(sid, retries=3):
+def _fetch_single_snotel(sid, state="CO", retries=3):
     primary_url = (
         "https://wcc.sc.egov.usda.gov/reportGenerator/view/"
-        "customSingleStationReport/daily/{}:CO:SNTL|id=%22%22|"
+        "customSingleStationReport/daily/{}:{}:SNTL|id=%22%22|"
         "name/-29,0/WTEQ::value,WTEQ::median_1991,WTEQ::pctOfMedian_1991,"
         "SNWD::value,PREC::value,PREC::median_1991,PREC::pctOfMedian_1991,"
         "TMAX::value,TMIN::value,TAVG::value?fitToScreen=false"
-    ).format(sid)
+    ).format(sid, state)
     fallback_url = (
         "https://wcc.sc.egov.usda.gov/reportGenerator/view/"
-        "customSingleStationReport/daily/{}:CO:SNTL|id=%22%22|"
+        "customSingleStationReport/daily/{}:{}:SNTL|id=%22%22|"
         "name/-30,0/WTEQ::value,SNWD::value,TAVG::value"
-    ).format(sid)
+    ).format(sid, state)
 
     for attempt in range(retries):
         for url in [primary_url, fallback_url]:
@@ -937,10 +936,13 @@ def _fetch_single_snotel(sid, retries=3):
     return pd.DataFrame()
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def get_snotel_data(site_ids):
+def get_snotel_data(site_ids, state="CO"):
     combined = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
-        results = list(ex.map(_fetch_single_snotel, site_ids))
+        # Use partial or lambda to pass state
+        futures = [ex.submit(_fetch_single_snotel, sid, state) for sid in site_ids]
+        results = [f.result() for f in futures]
+
     for df in results:
         if not df.empty:
             combined.append(df)
@@ -1292,7 +1294,7 @@ conf = RESORTS[selected_loc]
 
 with st.spinner(f"Syncing {selected_loc}…"):
     noaa_df, grid_elev = get_noaa_forecast(conf["lat"], conf["lon"])
-    snotel_df = get_snotel_data(conf["snotel_ids"])
+    snotel_df = get_snotel_data(conf["snotel_ids"], conf.get("state", "CO"))
     
     # Fetch NWP data if enabled
     if st.session_state["use_nwp"]:
