@@ -1070,18 +1070,24 @@ def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band
     if df_models.empty or not selected_models:
         return None
 
-    filtered = df_models[
-        (df_models["Model"].isin(selected_models)) & 
-        (df_models["Band"] == band_filter)
-    ] if "Band" in df_models.columns else df_models[df_models["Model"].isin(selected_models)]
+    # Make a copy to avoid altering the original DataFrame
+    df = df_models.copy()
+
+    # --- Ensure Date is datetime and timezone-aware ---
+    if not pd.api.types.is_datetime64_any_dtype(df["Date"]):
+        df["Date"] = pd.to_datetime(df["Date"])
+    if df["Date"].dt.tz is None:
+        df["Date"] = df["Date"].dt.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
+    # -------------------------------------------------
+
+    filtered = df[
+        (df["Model"].isin(selected_models)) &
+        (df["Band"] == band_filter)
+    ] if "Band" in df.columns else df[df["Model"].isin(selected_models)]
     
-    # Get the timezone from the data (if available)
-    if not filtered.empty and filtered["Date"].dt.tz is not None:
-        tz = filtered["Date"].dt.tz
-    else:
-        # Fallback to a default (should not happen, but just in case)
-        tz = pytz.timezone('America/Denver')
-    now = pd.Timestamp.now(tz=tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    # Use the timezone from the data
+    tz = filtered["Date"].dt.tz if not filtered.empty else pytz.timezone('America/Denver')
+    now = pd.Timestamp.now(tz=tz).normalize()  # midnight today
     future = filtered[filtered["Date"] >= now]
 
     if future.empty:
@@ -1166,16 +1172,25 @@ def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
         ), row=1, col=1, secondary_y=False)
 
     if show_spaghetti and not df_models.empty:
-        filtered = df_models[
-            (df_models["Model"].isin(selected_models)) & 
-            (df_models["Band"] == band_filter)
-        ] if "Band" in df_models.columns else df_models[df_models["Model"].isin(selected_models)]
+        # Make a local copy to ensure date handling
+        df_local = df_models.copy()
         
-        if not df_models.empty and "Date" in df_models.columns and df_models["Date"].dt.tz is not None:
-            tz = df_models["Date"].dt.tz
-        else:
-            tz = pytz.timezone('America/Denver')
-        now_dt = pd.Timestamp.now(tz=tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        # --- Ensure Date is datetime and timezone-aware ---
+        if not pd.api.types.is_datetime64_any_dtype(df_local["Date"]):
+            df_local["Date"] = pd.to_datetime(df_local["Date"])
+        if df_local["Date"].dt.tz is None:
+            df_local["Date"] = df_local["Date"].dt.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
+        # -------------------------------------------------
+
+        filtered = df_local[
+            (df_local["Model"].isin(selected_models)) &
+            (df_local["Band"] == band_filter)
+        ] if "Band" in df_local.columns else df_local[df_local["Model"].isin(selected_models)]
+
+        # Use the timezone from the data
+        tz = filtered["Date"].dt.tz if not filtered.empty else pytz.timezone('America/Denver')
+        now_dt = pd.Timestamp.now(tz=tz).normalize()
+
         colors = ["rgba(251,113,133,0.55)", "rgba(251,191,36,0.55)",
                   "rgba(45,212,191,0.55)", "rgba(196,181,253,0.55)",
                   "rgba(134,239,172,0.55)", "rgba(249,168,212,0.55)"]
