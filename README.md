@@ -1,98 +1,141 @@
-❄️ Summit Terminal
+# ❄️ Summit Terminal
 
-High-Fidelity Alpine Weather Forecasting & Telemetry Dashboard
+**High-Fidelity Alpine Weather Forecasting & Telemetry Dashboard**
 
-Summit Terminal is a Python-based desktop application designed to bridge the gap between coarse global weather models and specific alpine summits. Unlike standard weather apps that rely on static 10:1 snow-to-liquid ratios, Summit Terminal utilizes a proprietary Point Forecast Physics Engine to estimate snowfall based on thermodynamic downscaling, orographic lift, and dynamic microphysics.
+Summit Terminal is an advanced Python-based application designed to bridge the gap between global weather models (NWP) and specific alpine summits. By utilizing a proprietary **Point Forecast Physics Engine**, it downscales coarse model data to estimate snowfall based on thermodynamic profiles, orographic lift, and dynamic microphysics.
 
-🚀 Key Features
+The system features a **Data Abstraction Layer (DAL)** that unifies real-time telemetry (SNOTEL), atmospheric forecasts (NOAA, Open-Meteo), and historical verification data into a single, cohesive dashboard.
 
-1. Research-Grade Physics Engine
+---
 
-Thermodynamic Downscaling: Automatically adjusts temperature based on the specific vertical difference between the model's grid elevation and the target peak using a standard lapse rate (-0.65°C/100m).
+## 🚀 Key Features
 
-Orographic Enhancement: Applies a "Clausius-Clapeyron Proxy" to boost precipitation totals by 5% for every 100m of upslope vertical rise.
+### 1. The Logic Engine (Forecasting)
+*   **Thermodynamic Downscaling:** Adjusts temperature based on the specific vertical difference between the model's grid elevation and the target peak using a standard lapse rate (-0.65°C/100m).
+*   **Orographic Enhancement:** Applies a "Clausius-Clapeyron Proxy" to boost precipitation totals by 5% for every 100m of upslope vertical rise.
+*   **Dynamic Microphysics:** Calculates Snow-Liquid Ratios (SLR) based on wet-bulb temperature and humidity regimes:
+    *   **Rain:** > 1°C
+    *   **"Cascade Concrete":** 1°C to -3°C (8:1 Ratio)
+    *   **"Champagne Powder":** -12°C to -18°C + High RH (18:1 Ratio)
+    *   **Modified Kuchera:** Standard cold accumulation for other regimes.
 
-Dynamic Microphysics: Replaces the 10:1 ratio with a logic matrix:
+### 2. The Truth Engine (Verification)
+*   **SNOTEL Harvester:** Automatically scrapes and ingests USDA telemetry data (Snow Water Equivalent, Depth, Temperature) into a local SQLite database.
+*   **Forecast Snapshots:** Captures model predictions at issue time to verify accuracy against observed reality later.
 
-Rain Phase: > 1°C
+### 3. The Dashboard (UI)
+*   **Live Telemetry:** Real-time view of current conditions (Base Depth, SWE).
+*   **Ensemble Analysis:** Compare multiple weather models (ECMWF, GFS, GEM, ICON) side-by-side.
+*   **Atmospheric Outlook:** 7-day temperature and wind forecasts from NOAA.
+*   **Theme Support:** Switch between Light and Dark modes.
 
-"Cascade Concrete": 1°C to -3°C (8:1 Ratio)
+---
 
-"Champagne Powder": -12°C to -18°C + High RH (18:1 Ratio)
+## 🛠️ Installation & Setup
 
-Modified Kuchera: Standard cold accumulation for all other regimes.
+### Prerequisites
+*   Python 3.8+
+*   Internet connection (for API calls)
 
-2. The "Vibe" Engine
+### 1. Clone & Setup Environment
 
-Translates raw meteorological data into skier-centric summaries.
-
-Examples: "Where's your snorkel?", "DEFCON 1: It's Nuking", "Solid Reset."
-
-Illustrative loading states provide visibility into the data fetch process (Telemetry -> Atmospherics -> Physics).
-
-3. Multi-Source Integration
-
-NWP Models: Live ingestion of GFS and ECMWF models via Open-Meteo (Free Tier).
-
-SNOTEL: Direct scraping of USDA telemetry for live ground-truth (Snow Water Equivalent, Depth).
-
-NOAA: hourly atmospheric outlooks for temperature and wind.
-
-Manual Override: Paste raw data tables from third-party tools (like Snowiest.app) to override the internal physics engine.
-
-🛠️ Installation & Setup
-
-Prerequisites
-
-Python 3.8+
-
-Internet connection (for API calls)
-
-1. Clone & Setup
+```bash
+# Clone the repository
+git clone https://github.com/your-repo/summit-terminal.git
+cd summit-terminal
 
 # Create a virtual environment (Recommended)
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
-pip install streamlit pandas numpy plotly requests pytz
+pip install -r requirements.txt
+```
 
+---
 
-2. Run the Application
+## ⚙️ Configuration
 
-streamlit run summit_terminal.py
+### SNOTEL Stations
+Telemetry stations are configured in `vertical_descent_app/config/stations.yaml`. You can map USDA station triplets to internal location IDs.
 
+```yaml
+stations:
+  - triplet: "1186:CO:SNTL"
+    name: "Winter Park (Middle Fork Camp)"
+    location_id: 1
+  # Add more stations here...
+```
 
-The application will open automatically in your default web browser (localhost:8501).
+### Resort Configuration
+Forecast locations are currently defined in the `RESORTS` dictionary within the code (e.g., `vertical_descent_app/logic_engine/forecasting.py`). Each resort requires:
+*   Latitude/Longitude
+*   SNOTEL IDs
+*   Elevation profile (Base/Peak) for the Physics Engine.
 
-⚙️ Configuration
+---
 
-The application allows for forecast location customization directly within the code. Locate the RESORTS dictionary in summit_terminal.py:
+## 🖥️ Usage
 
-RESORTS = {
-    "Winter Park": {
-        "lat": 39.8859, 
-        "lon": -105.764,
-        "snotel_ids": [1186, 335], # USDA Site IDs
-        "snowiest_url": "...",
-        "elev_ft": {"base": 9000, "peak": 12060} # Critical for Physics Engine
-    },
-    # Add your own resorts here...
-}
+### 1. Initialize & Ingest Data (The Truth Engine)
+Before running the dashboard, populate the database with recent telemetry data.
 
+```bash
+# Fetch recent SNOTEL data (defaults to last 7 days or config)
+python scripts/run_harvester.py
 
-Note: The elev_ft dictionary is critical. The Physics Engine uses these values to calculate the vertical "lift" required to adjust the forecast from the smoothed global grid to your specific peak.
+# Optional: Fetch a specific date range
+python scripts/run_harvester.py --start 2023-10-01 --end 2023-10-31
+```
 
-⚠️ Limitations & Adversarial Reality Check
+### 2. Generate Forecast Snapshots (Optional)
+To build a history of forecasts for verification, run the snapshot script. This is typically run via a cron job (e.g., every 6 hours).
 
-Grid Resolution: The Open-Meteo Free Tier uses 0.4° (ECMWF) and 0.25° (GFS) resolution. While the Physics Engine mathematically corrects for elevation, it cannot "see" hyper-localized convective micro-bursts that occur between grid points.
+```bash
+python scripts/run_snapshot.py
+```
 
-Inversion Blindness: The standard lapse rate (-0.65°C/100m) assumes a standard atmosphere. During strong temperature inversions (common in January mornings), the engine may predict colder summit temps than reality.
+### 3. Launch the Dashboard
+Start the Streamlit application to visualize the data.
 
-SNOTEL Latency: USDA data is real-time but can occasionally lag by 1-2 hours depending on the transmission window.
+```bash
+streamlit run vertical_descent_app/app.py
+```
 
-📄 License
+The application will open automatically in your default web browser (typically `http://localhost:8501`).
+
+---
+
+## 📂 Project Structure
+
+```text
+summit-terminal/
+├── scripts/
+│   ├── run_harvester.py    # Fetches SNOTEL data
+│   └── run_snapshot.py     # Captures forecast snapshots
+├── vertical_descent_app/
+│   ├── app.py              # Main Streamlit Dashboard (v5)
+│   ├── config/             # Configuration files (stations.yaml)
+│   ├── dashboard/          # UI Components
+│   ├── data_layer/         # Database models & DAL
+│   ├── logic_engine/       # Physics & Forecasting logic
+│   └── truth_engine/       # Harvester & Verification logic
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## ⚠️ Limitations
+
+*   **Grid Resolution:** Open-Meteo Free Tier uses 0.4° (ECMWF) and 0.25° (GFS) resolution. The Physics Engine corrects for elevation but cannot predict hyper-localized micro-climates.
+*   **Inversion Blindness:** Standard lapse rates may overestimate summit coldness during strong inversions.
+*   **SNOTEL Latency:** USDA data is real-time but can occasionally lag by 1-2 hours.
+
+---
+
+## 📄 License
 
 MIT License. Free for personal use.
 
-Data provided by Open-Meteo (CC BY 4.0), NOAA, and USDA.
+Data provided by [Open-Meteo](https://open-meteo.com/) (CC BY 4.0), NOAA, and USDA.

@@ -3,7 +3,11 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List
 from sqlalchemy import Column, Integer, String, Float, DateTime, JSON
-from .database import Base
+from vertical_descent_app.data_layer.database import Base
+
+# =============================================================================
+# Pydantic Models (Data Exchange)
+# =============================================================================
 
 class VariableType(Enum):
     TEMP_AIR = "temp_air"
@@ -36,7 +40,9 @@ class ForecastResponse(BaseModel):
     points: List[UnifiedDataPoint]
     status: str # "OK", "PARTIAL_FAILURE", "CACHE_HIT"
 
-# SQLAlchemy Models
+# =============================================================================
+# SQLAlchemy Models (Database Persistence)
+# =============================================================================
 
 class Observations(Base):
     __tablename__ = "observations"
