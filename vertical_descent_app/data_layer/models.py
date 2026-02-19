@@ -9,7 +9,7 @@ from vertical_descent_app.data_layer.database import Base
 # Pydantic Models (Data Exchange)
 # =============================================================================
 
-class VariableType(Enum):
+class VariableType(str, Enum):
     TEMP_AIR = "temp_air"
     PRECIP_SNOW = "precip_snow"
     SNOW_DEPTH = "snow_depth" # Added
@@ -17,7 +17,7 @@ class VariableType(Enum):
     WIND_SPEED = "wind_speed"
     CLOUD_COVER = "cloud_cover"
 
-class DataQuality(Enum):
+class DataQuality(str, Enum):
     MEASURED = "measured"   # Hard telemetry (SNOTEL)
     FORECAST = "forecast"   # Model output
     INTERPOLATED = "interpolated" # Gap-filled
