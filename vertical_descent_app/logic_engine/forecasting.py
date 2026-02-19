@@ -62,6 +62,7 @@ RESORTS = {
         "lat": 39.8859, "lon": -105.764,
         "snotel_ids": [1186, 335],
         "state": "CO",
+        "timezone": "America/Denver",
         "snowiest_url": "https://www.snowiest.app/winter-park/snow-forecasts",
         "elevation": "9,000 – 12,060 ft",
         "elev_ft": {"base": 9000, "peak": 12060}
@@ -70,6 +71,7 @@ RESORTS = {
         "lat": 40.4855, "lon": -106.8336,
         "snotel_ids": [457, 709, 825],
         "state": "CO",
+        "timezone": "America/Denver",
         "snowiest_url": "https://www.snowiest.app/steamboat/snow-forecasts",
         "elevation": "6,900 – 10,568 ft",
         "elev_ft": {"base": 6900, "peak": 10568}
@@ -78,6 +80,7 @@ RESORTS = {
         "lat": 39.6419, "lon": -105.8753,
         "snotel_ids": [602, 505],
         "state": "CO",
+        "timezone": "America/Denver",
         "snowiest_url": "https://www.snowiest.app/arapahoe-basin/snow-forecasts",
         "elevation": "10,780 – 13,050 ft",
         "elev_ft": {"base": 10780, "peak": 13050}
@@ -144,7 +147,7 @@ class PointForecastEngine:
             "hourly": "precipitation,temperature_2m,relative_humidity_700hPa,cloud_cover,freezing_level_height",
             "models": ",".join(models_list),
             "precipitation_unit": "inch",
-            "timezone": "America/Denver"
+            "timezone": "UTC"
         }
 
         try:
@@ -163,7 +166,7 @@ class PointForecastEngine:
             return None
 
     @classmethod
-    def process_physics(cls, data: Dict, elev_config: Dict[str, int], resort_name: str) -> pd.DataFrame:
+    def process_physics(cls, data: Dict, elev_config: Dict[str, int], resort_name: str, tz_str: str = "UTC") -> pd.DataFrame:
         """
         The core physics logic that converts NWP data to band-specific snow forecasts.
         """
@@ -187,7 +190,7 @@ class PointForecastEngine:
                 logger.error(f"[{resort_name}] Empty time array")
                 return pd.DataFrame()
 
-            times = times.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
+            times = times.tz_localize("UTC").tz_convert(tz_str)
 
             model_elev_m = data.get("elevation", 0)
             if model_elev_m is None:
@@ -202,15 +205,23 @@ class PointForecastEngine:
 
             df_list = []
 
+            # Replace the key-checking block (around line 180) with this:
             for model_id, model_label in cls.MODEL_DISPLAY_MAP.items():
-                p_key = f"precipitation_{model_id}"
-                t_key = f"temperature_2m_{model_id}"
-                rh_key = f"relative_humidity_700hPa_{model_id}"
-                cloud_key = f"cloud_cover_{model_id}"
-                fl_key = f"freezing_level_height_{model_id}"
+                # Dynamically find the keys in the 'hourly' dictionary
+                p_key = next((k for k in hourly.keys() if k.startswith(f"precipitation_{model_id}")), None)
+                t_key = next((k for k in hourly.keys() if k.startswith(f"temperature_2m_{model_id}")), None)
+                rh_key = next((k for k in hourly.keys() if k.startswith(f"relative_humidity_700hPa_{model_id}")), None)
+                
+                # If the exact model_id isn't found, try a fuzzy match for the model type (e.g., 'gfs')
+                if not p_key:
+                    short_name = model_id.split('_')[0]
+                    p_key = next((k for k in hourly.keys() if k.startswith(f"precipitation_{short_name}")), None)
+                    t_key = next((k for k in hourly.keys() if k.startswith(f"temperature_2m_{short_name}")), None)
 
+                if p_key and t_key and rh_key in hourly:
+                    # Proceed with physics...
                 # Check if all required keys exist
-                if all(k in hourly for k in [p_key, t_key, rh_key, cloud_key, fl_key]):
+                 if all(k in hourly for k in [p_key, t_key, rh_key, cloud_key, fl_key]):
                     try:
                         # Get data and ensure it's not None
                         precip_raw = hourly[p_key]
@@ -296,7 +307,7 @@ class PointForecastEngine:
             return pd.DataFrame()
 
     @classmethod
-    async def get_forecast_async(cls, lat: float, lon: float, elev_config: Dict[str, int], resort_name: str = "Unknown") -> pd.DataFrame:
+    async def get_forecast_async(cls, lat: float, lon: float, elev_config: Dict[str, int], resort_name: str = "Unknown", tz_str: str = "UTC") -> pd.DataFrame:
         """
         Async entry point with caching.
         """
@@ -314,15 +325,12 @@ class PointForecastEngine:
             logger.warning(f"[{resort_name}] No data returned from API/Cache.")
             return pd.DataFrame()
 
-        return await asyncio.to_thread(cls.process_physics, data, elev_config, resort_name)
+        return await asyncio.to_thread(cls.process_physics, data, elev_config, resort_name, tz_str)
 
-def run_async_forecast(lat: float, lon: float, elev_config: Dict[str, int], resort_name: str) -> pd.DataFrame:
-    """
-    Synchronous wrapper for running async forecast in Streamlit.
-    """
+def run_async_forecast(lat: float, lon: float, elev_config: Dict[str, int], resort_name: str, tz_str: str = "UTC") -> pd.DataFrame:
     try:
         return asyncio.run(
-            PointForecastEngine.get_forecast_async(lat, lon, elev_config, resort_name)
+            PointForecastEngine.get_forecast_async(lat, lon, elev_config, resort_name, tz_str)
         )
     except Exception as e:
         logger.error(f"Error running async forecast: {e}")
@@ -612,33 +620,37 @@ def parse_snowiest_raw_text(text):
     df = pd.DataFrame(obs).dropna()
     return df, totals
 
-def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band_filter="Summit"):
+def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band_filter="Summit", tz_str="UTC"):
     if df_models.empty or not selected_models:
         return None
 
-    # Make a copy to avoid altering the original DataFrame
     df = df_models.copy()
 
-    # --- Ensure Date is datetime and timezone-aware ---
+    # --- Standardize Timezones ---
     if not pd.api.types.is_datetime64_any_dtype(df["Date"]):
         df["Date"] = pd.to_datetime(df["Date"])
+    
+    # Use dynamic tz_str instead of hardcoded Denver
     if df["Date"].dt.tz is None:
-        df["Date"] = df["Date"].dt.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
-    # -------------------------------------------------
+        df["Date"] = df["Date"].dt.tz_localize(tz_str, ambiguous='NaT', nonexistent='shift_forward')
+    else:
+        df["Date"] = df["Date"].dt.tz_convert(tz_str)
+    # -----------------------------
 
     filtered = df[
         (df["Model"].isin(selected_models)) &
         (df["Band"] == band_filter)
     ] if "Band" in df.columns else df[df["Model"].isin(selected_models)]
 
-    # Use the timezone from the data
-    tz = filtered["Date"].dt.tz if not filtered.empty else pytz.timezone('America/Denver')
-    now = pd.Timestamp.now(tz=tz).normalize()  # midnight today
+    # Use dynamic tz_str to find 'now'
+    tz = pytz.timezone(tz_str)
+    now = pd.Timestamp.now(tz=tz).normalize()  # midnight today in resort time
     future = filtered[filtered["Date"] >= now]
 
     if future.empty:
         return None
 
+    # ... (rest of the function remains the same)
     # Group by date and calculate statistics
     daily_stats = future.groupby("Date")["Amount"].agg(["mean", "min", "max", "std"]).reset_index()
     daily_stats = daily_stats.sort_values("Date").reset_index(drop=True)

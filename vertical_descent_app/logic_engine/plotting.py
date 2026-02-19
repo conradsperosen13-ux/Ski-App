@@ -75,9 +75,13 @@ def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
         ] if "Band" in df_local.columns else df_local[df_local["Model"].isin(selected_models)]
 
         # Use the timezone from the data
-        tz = filtered["Date"].dt.tz if not filtered.empty else pytz.timezone('America/Denver')
+        if not filtered.empty:
+            tz = filtered["Date"].dt.tz
+        else:
+            # Fallback to UTC if no data exists to prevent a NameError
+            tz = pytz.timezone('UTC')
         now_dt = pd.Timestamp.now(tz=tz).normalize()
-
+        
         colors = ["rgba(251,113,133,0.55)", "rgba(251,191,36,0.55)",
                   "rgba(45,212,191,0.55)", "rgba(196,181,253,0.55)",
                   "rgba(134,239,172,0.55)", "rgba(249,168,212,0.55)"]
@@ -130,8 +134,10 @@ def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
         )
 
     if not noaa_df.empty:
-        w_end = stats["Date"].max() + timedelta(days=1) if not stats.empty else datetime.now() + timedelta(days=8)
-        w_window = noaa_df[noaa_df["Time"] <= w_end]
+        noaa_plot = noaa_df.copy()
+        if noaa_plot["Time"].dt.tz is None:
+            noaa_plot["Time"] = noaa_plot["Time"].dt.tz_localize("UTC").dt.tz_convert(tz)
+        w_window = noaa_plot[noaa_plot["Time"] <= w_end]
         if not w_window.empty:
             fig.add_trace(go.Scatter(
                 x=w_window["Time"], y=w_window["Temp"],

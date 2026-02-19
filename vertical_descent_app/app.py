@@ -4,6 +4,7 @@ import asyncio
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+import pytz
 from plotly.subplots import make_subplots
 
 # Import logic from the logic engine module
@@ -438,9 +439,8 @@ def debug_nwp_api(lat, lon):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_nwp_forecast(lat: float, lon: float, elev_config: dict, resort_name: str) -> pd.DataFrame:
-    """Cached wrapper for NWP forecast."""
-    return run_async_forecast(lat, lon, elev_config, resort_name)
+def get_nwp_forecast(lat: float, lon: float, elev_config: dict, resort_name: str, tz_str: str) -> pd.DataFrame:
+    return run_async_forecast(lat, lon, elev_config, resort_name, tz_str)
 
 # =============================================================================
 # 7. DATA ENGINE (Cached Wrappers)
@@ -455,8 +455,8 @@ def get_snotel_data(site_ids, state="CO"):
     return logic_get_snotel_data(site_ids, state)
 
 @st.cache_data(show_spinner=False)
-def get_forecast_metrics_cached(df, selected_models, current_depth, selected_band):
-    return calculate_forecast_metrics(df, selected_models, current_depth, selected_band)
+def get_forecast_metrics_cached(df, selected_models, current_depth, selected_band, tz_str):
+    return calculate_forecast_metrics(df, selected_models, current_depth, selected_band, tz_str)
 
 # =============================================================================
 # 8. SESSION STATE
@@ -497,6 +497,7 @@ with top_right:
         st.toast("Coming in v2.0 🚧")
 
 conf = RESORTS[selected_loc]
+resort_tz = conf.get("timezone", "UTC")
 
 # =============================================================================
 # 10. DATA LOADING
@@ -507,8 +508,8 @@ with st.spinner(f"Syncing {selected_loc}…"):
 
     if st.session_state["use_nwp"]:
         with st.spinner("Fetching live NWP ensemble..."):
-            nwp_df = get_nwp_forecast(conf["lat"], conf["lon"], conf["elev_ft"], selected_loc)
-            st.session_state["nwp_data"] = nwp_df
+            # Pass resort_tz into the wrapper
+            nwp_df = get_nwp_forecast(conf["lat"], conf["lon"], conf["elev_ft"], selected_loc, resort_tz)
     else:
         st.session_state["nwp_data"] = pd.DataFrame()
 
@@ -568,7 +569,7 @@ if "Band" in df_models.columns:
 metrics = None
 if not df_models.empty:
     all_models = list(df_models["Model"].unique())
-    metrics    = get_forecast_metrics_cached(df_models, all_models, current_depth, selected_band)
+    metrics = get_forecast_metrics_cached(df_models, all_models, current_depth, selected_band, resort_tz)
 
 hero_val   = "—"
 hero_label = "NO DATA"
@@ -715,15 +716,19 @@ if not df_models.empty and metrics:
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
     if selected_models:
-        metrics_sub = get_forecast_metrics_cached(df_models, selected_models, current_depth, selected_band)
+        # Pass resort_tz
+        metrics_sub = get_forecast_metrics_cached(df_models, selected_models, current_depth, selected_band, resort_tz)
 
         if metrics_sub:
             daily_stats = metrics_sub["daily_stats"]
             noaa_cutoff = noaa_df["Time"].max() if not noaa_df.empty else None
 
             if not show_extended:
-                cutoff      = datetime.now() + timedelta(days=7)
+                # --- FIX: Safe timezone-aware cutoff using the resort's timezone ---
+                data_tz = pytz.timezone(resort_tz)
+                cutoff = pd.Timestamp.now(tz=data_tz) + pd.Timedelta(days=7)
                 daily_stats = daily_stats[daily_stats["Date"] <= cutoff].copy()
+                # -------------------------------------------------------------------
 
             if len(daily_stats) > 1:
                 date_min     = daily_stats["Date"].min().date()
@@ -734,12 +739,14 @@ if not df_models.empty and metrics:
                     value=(date_min, date_max),
                     format_func=lambda d: d.strftime("%b %d"),
                 )
-                w_start  = pd.Timestamp(slider_range[0])
-                w_end    = pd.Timestamp(slider_range[1])
+                w_start  = pd.Timestamp(slider_range[0]).tz_localize(resort_tz)
+                w_end    = pd.Timestamp(slider_range[1]).tz_localize(resort_tz).replace(hour=23, minute=59)
                 windowed = daily_stats[
                     (daily_stats["Date"] >= w_start) & (daily_stats["Date"] <= w_end)
                 ].copy()
-                windowed["cumulative"] = windowed["mean"].cumsum()
+                windowed = daily_stats[
+                    (daily_stats["Date"] >= w_start) & (daily_stats["Date"] <= w_end)
+                ].copy()
                 window_total = windowed["mean"].sum()
             else:
                 windowed     = daily_stats.copy()
