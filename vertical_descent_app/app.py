@@ -1,3 +1,8 @@
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import logging
+from datetime import datetime, timedelta
 import logging
 from datetime import datetime, timedelta
 import asyncio
@@ -24,7 +29,7 @@ st.set_page_config(
     page_title="Summit Terminal",
     page_icon="❄️",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 # =============================================================================
@@ -404,7 +409,22 @@ section[data-testid="stSidebar"] {{
 }}
 
 #MainMenu, footer, .stDeployButton {{ visibility: hidden; }}
-[data-testid="stToolbar"] {{ display: none; }}
+
+[data-testid="stSidebarCollapsedControl"] {{
+    display: flex !important;
+    visibility: visible !important;
+    left: 20px !important;
+    top: 20px !important;
+    z-index: 1000001 !important;
+    color: white !important;
+    background-color: #38bdf8 !important; /* Bright blue so we can see it */
+    border-radius: 50% !important;
+    width: 40px !important;
+    height: 40px !important;
+    justify-content: center !important;
+    align-items: center !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -550,11 +570,9 @@ if not snotel_df.empty:
         current_swe   = float(latest.get("SWE",   0) or 0)
 
 # =============================================================================
-# 11. HERO SECTION
+# 11. HERO SECTION (Adaptive Instrument Cluster)
 # =============================================================================
 st.markdown('<div style="height:1rem;"></div>', unsafe_allow_html=True)
-st.markdown("---")
-st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
 band_options  = ["Summit", "Mid", "Base"] if "Band" in df_models.columns else ["Summit"]
 selected_band = "Summit"
@@ -565,6 +583,8 @@ if "Band" in df_models.columns:
         value="Summit",
         help="Select elevation band for forecast (NWP only)"
     )
+st.markdown("---")
+st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
 metrics = None
 if not df_models.empty:
@@ -572,72 +592,74 @@ if not df_models.empty:
     metrics = get_forecast_metrics_cached(df_models, all_models, current_depth, selected_band, resort_tz)
 
 hero_val   = "—"
-hero_label = "NO DATA"
-hero_sub   = "Load demo data, paste Snowiest table, or enable NWP"
+hero_label = "AWAITING DATA"
+hero_sub   = "Load ensemble data to initialize telemetry."
 
 if metrics:
-    if metrics["major_storms"]:
-        s          = metrics["major_storms"][0]
-        hero_val   = f"{s['total']:.1f}\""
-        hero_label = "STORM CYCLE DETECTED"
-        hero_sub   = f"{s['days']} days  ·  Begins {s['start'].strftime('%a %b %d')}"
-    elif metrics["best_48h_amount"] > (metrics["best_24h_amount"] * 1.5) and metrics["best_48h_amount"] > 6:
-        hero_val   = f"{metrics['best_48h_amount']:.1f}\""
-        hero_label = "48H PEAK"
-        hero_sub   = f"Around {metrics['best_48h_date'].strftime('%A, %b %d')}"
-    elif metrics["best_24h_amount"] > 4:
-        hero_val   = f"{metrics['best_24h_amount']:.1f}\""
-        hero_label = "BEST POWDER DAY"
-        hero_sub   = metrics["best_24h_date"].strftime("%A, %b %d")
+    hc = metrics["hero_context"]
+    if hc["condition"] == "SNOW":
+        hero_val   = f"{hc['peak_amount']:.1f}\""
+        hero_label = "ESTIMATED BEST DAY" # Updated Label
+        day_str = hc["best_day"].strftime("%A, %b %d") if hc["best_day"] else "Unknown"
+        hero_sub   = f"Target: {day_str} · {hc['timing_note']}"
     else:
-        hero_val   = f"{metrics['total_snowfall']:.1f}\""
-        hero_label = "TOTAL FORECAST"
-        hero_sub   = f"Next {len(metrics['daily_stats'])} days"
+        hero_val   = "DRY"
+        hero_label = "ATMOSPHERE STABLE"
+        day_str = hc["best_day"].strftime("%A, %b %d") if hc["best_day"] else "Unknown"
+        hero_sub   = f"{hc['timing_note']} · Peak target: {day_str}"
 
-h_left, h_right = st.columns([5, 3], gap="large")
+h_col1, h_col2, h_col3 = st.columns([3, 4.5, 3.5], gap="large")
 
-with h_left:
+with h_col1:
+    st.markdown('<div class="section-label" style="margin-top:0;">Station</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="font-size:1.6rem; font-weight:700; color:var(--text-pri); margin-bottom:1rem;">{selected_loc}</div>', unsafe_allow_html=True)
+    
+    if st.session_state["use_nwp"]:
+        with st.expander("📡 NWP Uplink Status", expanded=False):
+            debug_data = debug_nwp_api(conf["lat"], conf["lon"])
+            if debug_data and "hourly" in debug_data:
+                st.json({
+                    "elevation":   debug_data.get("elevation"),
+                    "hourly_keys": list(debug_data["hourly"].keys())[:5],
+                })
+            else:
+                st.write("Awaiting connection...")
+
+with h_col2:
     st.markdown(f"""
-    <div class="fade-up fade-up-1" style="padding-bottom:1.5rem;">
+    <div class="fade-up fade-up-1" style="text-align: center; border-left: 1px solid var(--border); border-right: 1px solid var(--border); padding: 0 1rem;">
         <div class="hero-label">{hero_label}</div>
-        <div class="hero-stat">{hero_val}</div>
+        <div class="hero-stat" style="font-size: clamp(3rem, 5vw, 4.5rem);">{hero_val}</div>
         <div class="hero-sub">{hero_sub}</div>
     </div>
     """, unsafe_allow_html=True)
 
-with h_right:
+with h_col3:
     live_slr   = calculate_swe_ratio(noaa_df.iloc[0]["Temp"]) if not noaa_df.empty else 0
     spread_str = f"{metrics['avg_spread']:.1f}\"" if metrics else "—"
 
-    st.markdown(
-        '<div class="glass-card glass-card-accent fade-up fade-up-2" style="margin-bottom:0;">',
-        unsafe_allow_html=True
-    )
+    st.markdown('<div class="glass-card glass-card-accent fade-up fade-up-2" style="margin-bottom:0; padding:1rem;">', unsafe_allow_html=True)
     m1, m2 = st.columns(2)
     with m1:
         st.metric("Base Depth", f'{current_depth:.0f}"')
     with m2:
-        st.metric("SWE", f'{current_swe:.2f}"')
+        st.metric("SWE Total", f'{current_swe:.2f}"')
+    
+    st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
     m3, m4 = st.columns(2)
     with m3:
         st.metric("Live SLR", f"{live_slr}:1")
     with m4:
-        st.metric("Model Spread", spread_str)
+        st.metric("Spread", spread_str)
 
     source_indicators = []
-    if not df_snowiest.empty:
-        source_indicators.append('<span class="pill pill-blue">Snowiest</span>')
-    if not df_nwp.empty:
-        source_indicators.append('<span class="pill pill-teal">NWP Live</span>')
-
+    if not df_snowiest.empty: source_indicators.append('<span class="pill pill-blue">Snowiest</span>')
+    if not df_nwp.empty:      source_indicators.append('<span class="pill pill-teal">NWP</span>')
+    
     st.markdown(
-        f'<div style="margin-top:0.5rem; display:flex; gap:0.5rem;">{"".join(source_indicators)}</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        f'<div style="margin-top:0.5rem; font-size:0.75rem;">'
-        f'<span class="live-dot"></span>'
-        f'<span style="color:{ACCENT_TEAL};">Live Telemetry · {conf["elevation"]}</span>'
+        f'<div style="margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">'
+        f'<div style="display:flex; gap:0.4rem;">{"".join(source_indicators)}</div>'
+        f'<div style="font-size:0.65rem;"><span class="live-dot"></span><span style="color:{ACCENT_TEAL}; opacity:0.8;">{conf["elevation"]}</span></div>'
         f'</div>',
         unsafe_allow_html=True
     )
@@ -695,13 +717,19 @@ st.markdown('<div class="section-label fade-up fade-up-5">Ensemble Analysis</div
 if not df_models.empty and metrics:
     ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([2.5, 1, 1, 1], gap="small")
     with ctrl1:
-        u_models        = sorted(df_models["Model"].unique())
-        default_models  = [m for m in u_models if "Average" not in m]
+        # Filter out the static Average line to prevent double plotting
+        u_models = [m for m in sorted(df_models["Model"].unique()) if "Average" not in m]
+        
+        # Default to showing the first 3 models to keep initial noise low
+        default_models = u_models[:3]
+        
         selected_models = st.multiselect(
-            "Active Models", u_models, default=default_models[:4], label_visibility="collapsed"
+            "Active Models", u_models, default=default_models, label_visibility="collapsed"
         )
+    
+    # --- THESE MUST BE INDENTED ---
     with ctrl2:
-        show_ribbon    = st.toggle("Ribbon",    value=True)
+        show_spread    = st.toggle("Spread",    value=True)
     with ctrl3:
         show_spaghetti = st.toggle("Spaghetti", value=False)
     with ctrl4:
@@ -714,7 +742,7 @@ if not df_models.empty and metrics:
         )
 
     st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
-
+    # ------------------------------
     if selected_models:
         # Pass resort_tz
         metrics_sub = get_forecast_metrics_cached(df_models, selected_models, current_depth, selected_band, resort_tz)
@@ -754,12 +782,15 @@ if not df_models.empty and metrics:
 
             sm1, sm2, sm3, sm4 = st.columns(4)
             with sm1:
-                st.metric("Window Total", f'{window_total:.1f}"')
+                st.metric("Window Total", f'{metrics_sub["total_snowfall"]:.1f}"')
             with sm2:
+                # Use the new peak_amount from our strike window logic
+                peak_val = metrics_sub["hero_context"]["peak_amount"]
+                peak_day = metrics_sub["hero_context"]["best_day"]
                 st.metric(
-                    "Best Day",
-                    f'{metrics_sub["best_24h_amount"]:.1f}"',
-                    delta=metrics_sub["best_24h_date"].strftime("%a %b %d")
+                    "Best Window",
+                    f'{peak_val:.1f}"',
+                    delta=peak_day.strftime("%a %b %d") if peak_day else None
                 )
             with sm3:
                 st.metric("Models Active", len(selected_models))
@@ -772,11 +803,12 @@ if not df_models.empty and metrics:
                 stats=windowed,
                 noaa_df=noaa_df,
                 show_spaghetti=show_spaghetti,
-                show_ribbon=show_ribbon,
+                show_ribbon=show_spread,  # <--- UPDATE THIS to match your new toggle
                 df_models=df_models,
                 selected_models=selected_models,
                 noaa_cutoff_dt=noaa_cutoff,
                 show_extended=show_extended,
+                w_end=w_end,        
                 band_filter=selected_band,
                 is_dark=is_dark,
             )
@@ -959,9 +991,13 @@ with t2:
 
 with t3:
     st.caption("NWP Live Data")
+    # Check if df_nwp exists and the 'Band' column is present 
     if not df_nwp.empty and "Band" in df_nwp.columns:
-        latest_nwp = df_nwp[df_nwp["Band"] == "Summit"].groupby("Model").last().reset_index()
-        cols       = [c for c in ["Model", "Amount", "Temp_C", "SLR"] if c in latest_nwp.columns]
+        # Match the band to the user-selected band from the slider 
+        latest_nwp = df_nwp[df_nwp["Band"] == selected_band].groupby("Model").last().reset_index()
+        
+        # Ensure we only try to display columns that exist 
+        cols = [c for c in ["Model", "Amount", "Temp_C", "SLR"] if c in latest_nwp.columns]
         st.dataframe(latest_nwp[cols].round(1), use_container_width=True, hide_index=True)
     else:
         st.info("No NWP data (enable in sidebar)")

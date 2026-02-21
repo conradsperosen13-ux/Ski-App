@@ -33,73 +33,112 @@ PLOTLY_TEMPLATE = dict(
 
 def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
                            df_models, selected_models, noaa_cutoff_dt, show_extended,
-                           band_filter="Summit", is_dark=True):
+                           w_end, band_filter="Summit", is_dark=True):
 
-    # Adjust colors based on theme if passed
-    # Note: Global constants in logic.py are fixed, but we could make them dynamic or arguments.
-    # For now, I'm using the constants defined above which match the dark theme in dashboard.py roughly.
-    # To fully support theming in logic, we might need to pass colors as args.
+    # --- 1. GLOBAL TIMEZONE DETECTION ---
+    if not stats.empty:
+        tz = stats["Date"].dt.tz
+    elif not df_models.empty:
+        tz = df_models["Date"].dt.tz
+    else:
+        tz = pytz.timezone('UTC')
+    
+    # --- 2. PREPARE RAW DATA FOR PERCENTILES AND SPAGHETTI ---
+    df_local = df_models.copy()
+    if not df_local.empty:
+        if not pd.api.types.is_datetime64_any_dtype(df_local["Date"]):
+            df_local["Date"] = pd.to_datetime(df_local["Date"])
+        if df_local["Date"].dt.tz is None:
+            df_local["Date"] = df_local["Date"].dt.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
+            
+        filtered = df_local[
+            (df_local["Model"].isin(selected_models)) &
+            (df_local["Band"] == band_filter)
+        ] if "Band" in df_local.columns else df_local[df_local["Model"].isin(selected_models)]
+    else:
+        filtered = pd.DataFrame()
 
+    # --- 3. SUBPLOT SETUP (Dual axes on both rows) ---
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
         row_heights=[0.68, 0.32],
         vertical_spacing=0.06,
-        specs=[[{"secondary_y": True}], [{"secondary_y": False}]]
+        specs=[[{"secondary_y": True}], [{"secondary_y": True}]] # Updated to support dual axes on row 2
     )
 
-    if show_ribbon and not stats.empty:
-        x_ribbon = pd.concat([stats["Date"], stats["Date"][::-1]])
-        y_ribbon = pd.concat([stats["max"], stats["min"][::-1]])
-        fig.add_trace(go.Scatter(
-            x=x_ribbon, y=y_ribbon,
-            fill="toself", fillcolor="rgba(56,189,248,0.07)",
-            line=dict(color="rgba(0,0,0,0)"),
-            name="Uncertainty Range", hoverinfo="skip"
-        ), row=1, col=1, secondary_y=False)
+    now_dt = pd.Timestamp.now(tz=tz).normalize()
 
-    if show_spaghetti and not df_models.empty:
-        # Make a local copy to ensure date handling
-        df_local = df_models.copy()
-
-        # --- Ensure Date is datetime and timezone-aware ---
-        if not pd.api.types.is_datetime64_any_dtype(df_local["Date"]):
-            df_local["Date"] = pd.to_datetime(df_local["Date"])
-        if df_local["Date"].dt.tz is None:
-            df_local["Date"] = df_local["Date"].dt.tz_localize("America/Denver", ambiguous='NaT', nonexistent='shift_forward')
-        # -------------------------------------------------
-
-        filtered = df_local[
-            (df_local["Model"].isin(selected_models)) &
-            (df_local["Band"] == band_filter)
-        ] if "Band" in df_local.columns else df_local[df_local["Model"].isin(selected_models)]
-
-        # Use the timezone from the data
-        if not filtered.empty:
-            tz = filtered["Date"].dt.tz
-        else:
-            # Fallback to UTC if no data exists to prevent a NameError
-            tz = pytz.timezone('UTC')
-        now_dt = pd.Timestamp.now(tz=tz).normalize()
+ # 4. SPAGHETTI LINES (Cumulative, Resampled, Smoothed)
+    if show_spaghetti and not filtered.empty:
+        # High contrast palette for dense ensemble charts
+        colors = [
+            "#38bdf8", # Bright Sky Blue
+            "#fb7185", # Vibrant Rose
+            "#a3e635", # Electric Lime
+            "#facc15", # Bright Yellow
+            "#c084fc", # Vivid Purple
+            "#fb923c", # Bright Orange
+            "#2dd4bf", # Neon Teal
+            "#f472b6", # Hot Pink
+            "#60a5fa", # True Blue
+            "#e879f9", # Bright Fuchsia
+            "#4ade80", # Mint Green
+            "#f87171"  # Coral Red
+        ]
         
-        colors = ["rgba(251,113,133,0.55)", "rgba(251,191,36,0.55)",
-                  "rgba(45,212,191,0.55)", "rgba(196,181,253,0.55)",
-                  "rgba(134,239,172,0.55)", "rgba(249,168,212,0.55)"]
         for i, mdl in enumerate(selected_models):
             m_df = filtered[
                 (filtered["Model"] == mdl) &
-                (filtered["Date"] >= now_dt)
-            ]
+                (filtered["Date"] >= now_dt) &
+                (filtered["Date"] <= w_end)
+            ].sort_values("Date")
+            
             if not m_df.empty:
-                fig.add_trace(go.Scatter(
-                    x=m_df["Date"], y=m_df["Amount"].fillna(0),
-                    mode="lines",
-                    line=dict(width=1.5, color=colors[i % len(colors)]),
-                    name=mdl, opacity=0.75,
-                    hovertemplate=f"<b>{mdl}</b>: %{{y:.1f}}\"<extra></extra>"
-                ), row=1, col=1, secondary_y=False)
+                orig_max_date = m_df["Date"].max()
+                
+                # Resample to 6 hour granularity
+                m_resampled = m_df.set_index("Date").resample("6H").sum(numeric_only=True).reset_index()
+                m_resampled = m_resampled[m_resampled["Date"] <= orig_max_date]
+                
+                # Calculate cumulative growth
+                y_val = m_resampled["Amount"].cumsum()
 
+                fig.add_trace(go.Scatter(
+                    x=m_resampled["Date"], y=y_val,
+                    mode="lines",
+                    line=dict(
+                        width=2.5, 
+                        color=colors[i % len(colors)],
+                        shape="spline", 
+                        smoothing=0.4 # Low tension prevents artificial dips on cumulative data
+                    ),
+                    name=mdl,
+                    opacity=0.85,
+                    hovertemplate=f"<b>{mdl}</b> (6h): %{{y:.1f}}\"<extra></extra>"
+                ), row=1, col=1, secondary_y=True)
+    # --- 5. MAIN STATS BARS AND ERROR LOGIC ---
     if not stats.empty:
+        # Calculate 10th and 90th percentile error bars
+        if show_ribbon and not filtered.empty:
+            daily_p90 = filtered.groupby(filtered["Date"].dt.date)["Amount"].quantile(0.9)
+            daily_p10 = filtered.groupby(filtered["Date"].dt.date)["Amount"].quantile(0.1)
+            
+            p90_mapped = stats["Date"].dt.date.map(daily_p90).fillna(stats["mean"])
+            p10_mapped = stats["Date"].dt.date.map(daily_p10).fillna(stats["mean"])
+            
+            y_upper = (p90_mapped - stats["mean"]).clip(lower=0)
+            y_lower = (stats["mean"] - p10_mapped).clip(lower=0)
+            
+            err_dict = dict(
+                type='data', symmetric=False,
+                array=y_upper, arrayminus=y_lower,
+                color="rgba(255,255,255,0.45)" if is_dark else "rgba(0,0,0,0.45)",
+                thickness=1.5, width=4
+            )
+        else:
+            err_dict = None
+
         max_val = stats["mean"].max() or 0.1
         bar_colors = [
             f"rgba(56,189,248,{min(0.28 + v / max_val * 0.68, 0.95):.2f})"
@@ -109,6 +148,7 @@ def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
             x=stats["Date"], y=stats["mean"],
             name="Daily Average",
             marker=dict(color=bar_colors, line=dict(width=0)),
+            error_y=err_dict, # Apply the statistical spread here
             hovertemplate="<b>%{x|%a %b %d}</b><br>Mean: <b>%{y:.2f}\"</b><extra></extra>"
         ), row=1, col=1, secondary_y=False)
 
@@ -120,6 +160,7 @@ def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
             hovertemplate="Cumulative: <b>%{y:.1f}\"</b><extra></extra>"
         ), row=1, col=1, secondary_y=True)
 
+    # --- 6. EXTENDED FORECAST CUTOFF ---
     if show_extended and noaa_cutoff_dt is not None:
         fig.add_vline(
             x=noaa_cutoff_dt,
@@ -133,37 +174,51 @@ def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon,
             borderpad=3, xanchor="center"
         )
 
+    # --- 7. NOAA OUTLOOK (DUAL AXES) ---
     if not noaa_df.empty:
         noaa_plot = noaa_df.copy()
         if noaa_plot["Time"].dt.tz is None:
             noaa_plot["Time"] = noaa_plot["Time"].dt.tz_localize("UTC").dt.tz_convert(tz)
         w_window = noaa_plot[noaa_plot["Time"] <= w_end]
+        
         if not w_window.empty:
             fig.add_trace(go.Scatter(
                 x=w_window["Time"], y=w_window["Temp"],
                 name="Temp °F",
                 line=dict(color=TEXT_SEC, width=1.5),
                 hovertemplate="%{y:.0f}°F<extra>Temp</extra>"
-            ), row=2, col=1)
+            ), row=2, col=1, secondary_y=False) # Bound to left axis
+            
             fig.add_trace(go.Scatter(
                 x=w_window["Time"], y=w_window["Humidity"],
                 name="Humidity %",
                 line=dict(color=ACCENT_TEAL, width=1.5, dash="dot"),
                 hovertemplate="%{y:.0f}%<extra>Humidity</extra>"
-            ), row=2, col=1)
+            ), row=2, col=1, secondary_y=True) # Bound to right axis
+            
             fig.add_hline(y=32, line=dict(color="rgba(56,189,248,0.22)", dash="dash", width=1), row=2, col=1)
 
+    # --- 8. LAYOUT AND STYLING ---
     layout_update = PLOTLY_TEMPLATE["layout"].to_plotly_json()
     layout_update.update(dict(
         height=480, bargap=0.3,
         yaxis=dict(title="Snow (in)", gridcolor=PLOTLY_GRID, zeroline=False, showline=False),
         yaxis2=dict(
             overlaying="y", side="right", showgrid=False, zeroline=False,
-            title="Cumul (in)",
-            tickfont=dict(color="rgba(251,113,133,0.6)"),
+            title="Cumul (in)", tickfont=dict(color="rgba(251,113,133,0.6)"),
             title_font=dict(color="rgba(251,113,133,0.6)")
         ),
-        yaxis3=dict(title="°F / %", gridcolor=PLOTLY_GRID, zeroline=False, showline=False)
+        # Dedicated Temperature Axis
+        yaxis3=dict(
+            title="Temp °F", gridcolor=PLOTLY_GRID, zeroline=False, showline=False,
+            tickfont=dict(color=TEXT_SEC), title_font=dict(color=TEXT_SEC)
+        ),
+        # Dedicated Humidity Axis
+        yaxis4=dict(
+            title="Humidity %", overlaying="y3", side="right", showgrid=False, zeroline=False,
+            tickfont=dict(color=ACCENT_TEAL), title_font=dict(color=ACCENT_TEAL),
+            range=[0, 105] # Fix humidity scale
+        )
     ))
     fig.update_layout(layout_update)
     return fig

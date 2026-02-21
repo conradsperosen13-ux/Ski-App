@@ -168,7 +168,8 @@ class PointForecastEngine:
     @classmethod
     def process_physics(cls, data: Dict, elev_config: Dict[str, int], resort_name: str, tz_str: str = "UTC") -> pd.DataFrame:
         """
-        The core physics logic that converts NWP data to band-specific snow forecasts.
+        Enterprise-Grade Physics Engine.
+        Features true fuzzy key matching and resilient array handling.
         """
         try:
             if not data:
@@ -176,28 +177,19 @@ class PointForecastEngine:
                 return pd.DataFrame()
 
             hourly = data.get("hourly", {})
-
-            if not hourly:
-                logger.error(f"[{resort_name}] No hourly data in response")
+            if not hourly or "time" not in hourly:
+                logger.error(f"[{resort_name}] Incomplete hourly data")
                 return pd.DataFrame()
 
-            if "time" not in hourly or not hourly["time"]:
-                logger.error(f"[{resort_name}] No time data in response")
-                return pd.DataFrame()
-
+            # 1. Safely parse and convert timezones
             times = pd.to_datetime(hourly["time"])
             if len(times) == 0:
-                logger.error(f"[{resort_name}] Empty time array")
                 return pd.DataFrame()
-
             times = times.tz_localize("UTC").tz_convert(tz_str)
 
-            model_elev_m = data.get("elevation", 0)
-            if model_elev_m is None:
-                model_elev_m = 0
-                logger.warning(f"[{resort_name}] No elevation in response, using 0")
-
-            # Define Bands
+            model_elev_m = data.get("elevation", 0) or 0
+            
+            # 2. Elevation Band Setup
             base_m = elev_config["base"] * 0.3048
             peak_m = elev_config["peak"] * 0.3048
             mid_m = (base_m + peak_m) / 2.0
@@ -205,63 +197,44 @@ class PointForecastEngine:
 
             df_list = []
 
-            # Replace the key-checking block (around line 180) with this:
             for model_id, model_label in cls.MODEL_DISPLAY_MAP.items():
-                # Dynamically find the keys in the 'hourly' dictionary
-                p_key = next((k for k in hourly.keys() if k.startswith(f"precipitation_{model_id}")), None)
-                t_key = next((k for k in hourly.keys() if k.startswith(f"temperature_2m_{model_id}")), None)
-                rh_key = next((k for k in hourly.keys() if k.startswith(f"relative_humidity_700hPa_{model_id}")), None)
+                # TRUE FUZZY MATCHING: Extract 'gfs' from 'gfs_seamless'
+                short_id = model_id.split('_')[0] 
                 
-                # If the exact model_id isn't found, try a fuzzy match for the model type (e.g., 'gfs')
-                if not p_key:
-                    short_name = model_id.split('_')[0]
-                    p_key = next((k for k in hourly.keys() if k.startswith(f"precipitation_{short_name}")), None)
-                    t_key = next((k for k in hourly.keys() if k.startswith(f"temperature_2m_{short_name}")), None)
+                # Find keys that contain the variable type AND the short_id
+                p_key = next((k for k in hourly.keys() if k.startswith("precipitation_") and short_id in k), None)
+                t_key = next((k for k in hourly.keys() if k.startswith("temperature_2m_") and short_id in k), None)
+                rh_key = next((k for k in hourly.keys() if k.startswith("relative_humidity_700hPa_") and short_id in k), None)
+                cloud_key = next((k for k in hourly.keys() if k.startswith("cloud_cover_") and short_id in k), None)
+                fl_key = next((k for k in hourly.keys() if k.startswith("freezing_level_height_") and short_id in k), None)
 
-                if p_key and t_key and rh_key in hourly:
-                    # Proceed with physics...
-                # Check if all required keys exist
-                 if all(k in hourly for k in [p_key, t_key, rh_key, cloud_key, fl_key]):
+                # Only proceed if the critical thermodynamic keys exist
+                if p_key and t_key and rh_key:
                     try:
-                        # Get data and ensure it's not None
-                        precip_raw = hourly[p_key]
-                        temp_raw_c = hourly[t_key]
-                        rh_700 = hourly[rh_key]
-                        cloud_cover = hourly[cloud_key]
-                        freezing_level = hourly[fl_key]
-
-                        # Check if any are None or empty
-                        if not all([precip_raw, temp_raw_c, rh_700, cloud_cover, freezing_level]):
-                            logger.debug(f"[{resort_name}] Some data empty for {model_label}")
-                            continue
-
-                        # Convert to numpy arrays, replacing None with 0
-                        precip_raw = np.array([x if x is not None else 0 for x in precip_raw], dtype=float)
-                        temp_raw_c = np.array([x if x is not None else 0 for x in temp_raw_c], dtype=float)
-                        rh_700 = np.array([x if x is not None else 0 for x in rh_700], dtype=float)
-                        cloud_cover = np.array([x if x is not None else 0 for x in cloud_cover], dtype=float)
-                        freezing_level = np.array([x if x is not None else 0 for x in freezing_level], dtype=float)
-
-                        # Ensure same length as times
-                        if len(precip_raw) != len(times):
-                            logger.warning(f"[{resort_name}] Length mismatch for {model_label}")
-                            continue
+                        # FAST ARRAY PROCESSING: Replace Nones with NaNs, then convert to 0
+                        precip_raw = np.nan_to_num(np.array(hourly[p_key], dtype=float), nan=0.0)
+                        temp_raw_c = np.nan_to_num(np.array(hourly[t_key], dtype=float), nan=0.0)
+                        rh_700 = np.nan_to_num(np.array(hourly[rh_key], dtype=float), nan=0.0)
+                        
+                        # Resilient fallback for non-critical keys
+                        cloud_cover = np.nan_to_num(np.array(hourly.get(cloud_key, [0]*len(times)), dtype=float), nan=0.0)
+                        freezing_level = np.nan_to_num(np.array(hourly.get(fl_key, [0]*len(times)), dtype=float), nan=0.0)
 
                         for band_name, target_elev_m in bands.items():
                             delta_z_m = target_elev_m - model_elev_m
+                            
+                            # Physics: Thermodynamic Downscaling
                             temp_adj_c = temp_raw_c - (cls.LAPSE_RATE_C_PER_100M * (delta_z_m / 100.0))
+                            
+                            # Physics: Orographic Lift
                             lift_multiplier = 1.0 + cls.OROGRAPHIC_LIFT_FACTOR * (np.maximum(0, delta_z_m) / 100.0)
-                            precip_adj = precip_raw * lift_multiplier
+                            precip_adj = np.maximum(0, precip_raw * lift_multiplier)
 
-                            # Ensure no negative precipitation
-                            precip_adj = np.maximum(0, precip_adj)
-
-                            # Dynamic SLR calculations
+                            # Physics: Dynamic SLR
                             is_rain = temp_adj_c > 1.0
                             is_wet_snow = (temp_adj_c <= 1.0) & (temp_adj_c > -3.0)
                             is_dgz_champagne = (temp_adj_c <= -12.0) & (temp_adj_c >= -18.0) & (rh_700 >= 80.0)
-
-                            # Kuchera SLR approximation
+                            
                             kuchera_ratio = np.clip(12.0 + (-2.0 - temp_adj_c), 8.0, 30.0)
 
                             slr = np.select(
@@ -270,14 +243,11 @@ class PointForecastEngine:
                                 default=kuchera_ratio
                             )
 
-                            # Calculate snow amount (convert to inches)
-                            snow_amount = precip_adj * slr
-
                             df_list.append(pd.DataFrame({
                                 "Date": times,
                                 "Model": model_label,
                                 "Band": band_name,
-                                "Amount": snow_amount,
+                                "Amount": precip_adj * slr,
                                 "Temp_C": temp_adj_c,
                                 "SLR": slr,
                                 "Cloud_Cover": cloud_cover,
@@ -286,24 +256,17 @@ class PointForecastEngine:
                                 "Source": "NWP"
                             }))
                     except Exception as e:
-                        logger.error(f"[{resort_name}] Error processing {model_label}: {e}")
-                        continue
-                else:
-                    missing = [k for k in [p_key, t_key, rh_key, cloud_key, fl_key] if k not in hourly]
-                    logger.debug(f"[{resort_name}] Skipping {model_label} due to missing keys: {missing}")
+                        logger.error(f"[{resort_name}] Model processing failed for {model_label}: {e}")
 
             if not df_list:
-                logger.warning(f"[{resort_name}] No valid model data processed")
                 return pd.DataFrame()
 
             result = pd.concat(df_list, ignore_index=True)
-            logger.info(f"[{resort_name}] Processed {len(result)} rows from {len(df_list)} models")
+            logger.info(f"[{resort_name}] Successfully processed {len(result)} physics-adjusted rows.")
             return result
 
         except Exception as e:
-            logger.error(f"Physics Processing Error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Critical Physics Error: {e}")
             return pd.DataFrame()
 
     @classmethod
@@ -625,85 +588,106 @@ def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band
         return None
 
     df = df_models.copy()
-
-    # --- Standardize Timezones ---
     if not pd.api.types.is_datetime64_any_dtype(df["Date"]):
         df["Date"] = pd.to_datetime(df["Date"])
     
-    # Use dynamic tz_str instead of hardcoded Denver
     if df["Date"].dt.tz is None:
         df["Date"] = df["Date"].dt.tz_localize(tz_str, ambiguous='NaT', nonexistent='shift_forward')
     else:
         df["Date"] = df["Date"].dt.tz_convert(tz_str)
-    # -----------------------------
 
     filtered = df[
         (df["Model"].isin(selected_models)) &
         (df["Band"] == band_filter)
     ] if "Band" in df.columns else df[df["Model"].isin(selected_models)]
 
-    # Use dynamic tz_str to find 'now'
     tz = pytz.timezone(tz_str)
-    now = pd.Timestamp.now(tz=tz).normalize()  # midnight today in resort time
+    now = pd.Timestamp.now(tz=tz).normalize()
     future = filtered[filtered["Date"] >= now]
 
     if future.empty:
         return None
 
-    # ... (rest of the function remains the same)
-    # Group by date and calculate statistics
-    daily_stats = future.groupby("Date")["Amount"].agg(["mean", "min", "max", "std"]).reset_index()
-    daily_stats = daily_stats.sort_values("Date").reset_index(drop=True)
+    # 1. Calculate Consensus Time-Series
+    # Average the models at each specific timestamp
+    ts_consensus = future.groupby("Date")["Amount"].mean().reset_index()
+    ts_consensus = ts_consensus.sort_values("Date").reset_index(drop=True)
+    
+    total_snowfall = ts_consensus["Amount"].sum()
+    
+    # 2. Daily Aggregation for Charts
+    future["Day"] = future["Date"].dt.normalize()
+    # Sum each model's daily output, THEN average across models
+    daily_model_sums = future.groupby(["Day", "Model"])["Amount"].sum().reset_index()
+    daily_stats = daily_model_sums.groupby("Day")["Amount"].agg(
+        mean="mean", min="min", max="max", std="std"
+    ).reset_index()
+    daily_stats.rename(columns={"Day": "Date"}, inplace=True)
+    
     daily_stats["cumulative"] = daily_stats["mean"].cumsum()
     daily_stats["total_depth"] = current_depth + daily_stats["cumulative"]
     daily_stats["spread"] = daily_stats["max"] - daily_stats["min"]
-    daily_stats["mean_48h"] = daily_stats["mean"].rolling(window=2, min_periods=1).sum()
 
-    best_24h_idx  = daily_stats["mean"].idxmax()
-    best_24h_val  = daily_stats.loc[best_24h_idx, "mean"]
-    best_24h_date = daily_stats.loc[best_24h_idx, "Date"]
+    # 3. The Adaptive Hero Logic 
+    hero_context = {
+        "condition": "DRY",
+        "best_day": None,
+        "peak_amount": 0,
+        "timing_note": ""
+    }
 
-    best_48h_idx  = daily_stats["mean_48h"].idxmax()
-    best_48h_val  = daily_stats.loc[best_48h_idx, "mean_48h"]
-    best_48h_date = daily_stats.loc[best_48h_idx, "Date"]
-
-    daily_stats["is_heavy"] = daily_stats["mean"] >= STORM_THRESHOLD_IN
-    daily_stats["storm_group"] = (daily_stats["is_heavy"] != daily_stats["is_heavy"].shift()).cumsum()
-    storm_groups = daily_stats[daily_stats["is_heavy"]].groupby("storm_group")
-
-    major_storms = []
-    for _, group in storm_groups:
-        if len(group) >= 3:
-            major_storms.append({
-                "start": group["Date"].iloc[0],
-                "end":   group["Date"].iloc[-1],
-                "total": group["mean"].sum(),
-                "days":  len(group)
-            })
-    major_storms.sort(key=lambda x: x["total"], reverse=True)
-
-    storms = []
-    in_storm, storm_start, storm_total = False, None, 0.0
-    for _, row in daily_stats.iterrows():
-        if row["mean"] >= STORM_THRESHOLD_IN and not in_storm:
-            in_storm, storm_start, storm_total = True, row["Date"], row["mean"]
-        elif row["mean"] >= STORM_THRESHOLD_IN and in_storm:
-            storm_total += row["mean"]
-        elif row["mean"] < STORM_THRESHOLD_IN and in_storm:
-            storms.append({"start": storm_start, "total": storm_total})
-            in_storm, storm_total = False, 0.0
-    if in_storm:
-        storms.append({"start": storm_start, "total": storm_total})
+    if total_snowfall < 2.0:
+        # DRY SPELL LOGIC: Determine base conditions
+        hero_context["condition"] = "DRY"
+        # Find the warmest day in the next 5 days for spring slush check
+        if "Temp_C" in future.columns:
+            warmest_day = future.groupby("Day")["Temp_C"].max().idxmax()
+            max_temp = future.groupby("Day")["Temp_C"].max().max()
+            
+            if max_temp > 2.0 and current_depth > 20:
+                hero_context["timing_note"] = "Spring Conditions Formulating"
+                hero_context["best_day"] = warmest_day
+            else:
+                hero_context["timing_note"] = "Firm / Hardpack Conditions"
+                hero_context["best_day"] = now
+    else:
+        # SNOW EVENT LOGIC: Find best 24h rolling window
+        hero_context["condition"] = "SNOW"
+        
+        # Determine if data is hourly (NWP) or daily (Snowiest)
+        is_hourly = (ts_consensus["Date"].dt.hour > 0).any()
+        
+        if is_hourly:
+            # Calculate rolling 24 hour accumulation
+            ts_consensus.set_index("Date", inplace=True)
+            rolling_24h = ts_consensus["Amount"].rolling("24H").sum()
+            ts_consensus.reset_index(inplace=True)
+            
+            peak_idx = rolling_24h.idxmax()
+            peak_end_time = ts_consensus.loc[peak_idx, "Date"]
+            peak_amount = rolling_24h.iloc[peak_idx]
+            
+            # The Operational Noon Cutoff Rule
+            if peak_end_time.hour <= 12:
+                # Accumulation finished in the morning; target today
+                hero_context["best_day"] = peak_end_time.normalize()
+                hero_context["timing_note"] = f"Accumulation tapers by {peak_end_time.strftime('%H:00')}"
+            else:
+                # Accumulation finished late; target tomorrow morning
+                hero_context["best_day"] = (peak_end_time + pd.Timedelta(days=1)).normalize()
+                hero_context["timing_note"] = f"Drops {peak_amount:.1f}\" by {peak_end_time.strftime('%a %H:00')}"
+                
+            hero_context["peak_amount"] = peak_amount
+        else:
+            # Fallback for daily Snowiest data
+            best_idx = daily_stats["mean"].idxmax()
+            hero_context["best_day"] = daily_stats.loc[best_idx, "Date"] + pd.Timedelta(days=1)
+            hero_context["peak_amount"] = daily_stats.loc[best_idx, "mean"]
+            hero_context["timing_note"] = "Based on daily totals"
 
     return {
-        "best_24h_date":   best_24h_date,
-        "best_24h_amount": best_24h_val,
-        "best_48h_date":   best_48h_date,
-        "best_48h_amount": best_48h_val,
-        "major_storms":    major_storms,
-        "deepest_total":   daily_stats["total_depth"].max(),
-        "total_snowfall":  daily_stats["cumulative"].iloc[-1],
-        "avg_spread":      daily_stats["spread"].mean(),
-        "storms":          storms,
+        "total_snowfall":  total_snowfall,
+        "avg_spread":      daily_stats["spread"].mean() if not daily_stats["spread"].isna().all() else 0,
         "daily_stats":     daily_stats,
+        "hero_context":    hero_context
     }
