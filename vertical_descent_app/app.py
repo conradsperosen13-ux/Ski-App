@@ -11,14 +11,14 @@ import streamlit as st
 import plotly.graph_objects as go
 import pytz
 from plotly.subplots import make_subplots
-
-# Import logic from the logic engine module
 from vertical_descent_app.logic_engine import (
-    RESORTS, DEMO_DATA,
-    PointForecastEngine, run_async_forecast, get_raw_forecast_data,
-    calculate_swe_ratio, get_noaa_forecast as logic_get_noaa_forecast,
+    PointForecastEngine, 
+    run_async_forecast, 
+    get_raw_forecast_data,
+    calculate_swe_ratio, 
+    get_noaa_forecast as logic_get_noaa_forecast,
     get_snotel_data as logic_get_snotel_data,
-    parse_snowiest_raw_text, calculate_forecast_metrics,
+    calculate_forecast_metrics,
     build_forecast_figure
 )
 
@@ -43,15 +43,12 @@ is_dark = st.session_state["theme"] == "dark"
 with st.sidebar:
     st.markdown(
         '<p style="font-size:0.7rem; letter-spacing:0.12em; text-transform:uppercase; '
-        'opacity:0.5; margin-bottom:0.75rem;">Appearance</p>',
+        'opacity:0.5; margin-bottom:0.75rem;">Data Sources</p>',
         unsafe_allow_html=True
     )
-    theme_label = "☀️  Switch to Light" if is_dark else "🌙  Switch to Dark"
-    if st.button(theme_label, key="theme_btn"):
-        st.session_state["theme"] = "light" if is_dark else "dark"
-        st.rerun()
-
+    
     st.divider()
+    # ... rest of sidebar
     st.markdown(
         '<p style="font-size:0.7rem; letter-spacing:0.12em; text-transform:uppercase; '
         'opacity:0.5; margin-bottom:0.75rem;">Data Sources</p>',
@@ -60,15 +57,6 @@ with st.sidebar:
 
     use_nwp = st.toggle("🌐 Live NWP Data (Open-Meteo)", value=True)
     st.session_state["use_nwp"] = use_nwp
-
-    paste_input = st.text_area(
-        "Paste Snowiest Table",
-        height=120,
-        placeholder="Paste table from snowiest.app…",
-        label_visibility="collapsed"
-    )
-    from_paste = st.button("⬆  Parse Data", key="sidebar_parse")
-
     st.divider()
     st.markdown(
         '<p style="font-size:0.65rem; opacity:0.3; text-align:center;">Summit Terminal · v4 · NWP Integrated</p>',
@@ -425,6 +413,93 @@ section[data-testid="stSidebar"] {{
     align-items: center !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
 }}
+
+.mountain-control {{
+    background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(56,189,248,0.05) 100%), 
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 144 32'%3E%3Cpath fill='rgba(255,255,255,0.08)' d='M0,32L16,24L32,16L48,22L64,8L80,18L96,12L112,20L128,4L144,28L144,32Z'/%3E%3C/svg%3E") no-repeat bottom;
+    background-size: cover;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 1rem 0.5rem;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+}}
+
+.mountain-control .stRadio > div {{ 
+    gap: 1rem; 
+    align-items: center; 
+}}
+/* Nested Mountain Tier Container */
+.mtn-selector-wrap {{
+    position: relative;
+    width: 100%;
+    height: 250px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    padding-bottom: 20px;
+}}
+
+/* Shared Shape Logic */
+.tier-shape {{
+    position: absolute;
+    width: 100%;
+    background: var(--bg-card);
+    border-bottom: 3px solid var(--border);
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}}
+
+/* PEAK: True Triangle */
+.peak-shape {{
+    height: 70px;
+    width: 80px;
+    bottom: 160px;
+    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+}}
+.peak-shape.active {{ 
+    background: rgba(251, 113, 133, 0.15); 
+    border-bottom: 3px solid var(--accent-rose);
+    filter: drop-shadow(0 0 10px var(--accent-rose));
+}}
+
+/* MID: Trapezoid */
+.mid-shape {{
+    height: 75px;
+    width: 160px;
+    bottom: 85px;
+    clip-path: polygon(25% 0%, 75% 0%, 100% 100%, 0% 100%);
+}}
+.mid-shape.active {{ 
+    background: rgba(45, 212, 191, 0.15); 
+    border-bottom: 3px solid var(--accent-teal);
+    filter: drop-shadow(0 0 10px var(--accent-teal));
+}}
+
+/* BASE: Wide Trapezoid */
+.base-shape {{
+    height: 85px;
+    width: 240px;
+    bottom: 0px;
+    clip-path: polygon(15% 0%, 85% 0%, 100% 100%, 0% 100%);
+}}
+.base-shape.active {{ 
+    background: rgba(56, 189, 248, 0.15); 
+    border-bottom: 3px solid var(--accent-blue);
+    filter: drop-shadow(0 0 10px var(--accent-blue));
+}}
+
+/* Invisible Buttons overlayed on the shapes */
+.mtn-btn-overlay {{
+    position: absolute;
+    z-index: 10;
+}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -490,221 +565,223 @@ if "nwp_data" not in st.session_state:
 if "use_nwp" not in st.session_state:
     st.session_state["use_nwp"] = True
 
-if from_paste and paste_input.strip():
-    df_p, tots_p = parse_snowiest_raw_text(paste_input)
-    if not df_p.empty:
-        st.session_state["raw_model_data"] = df_p
-        st.session_state["model_totals"]   = tots_p
-        st.sidebar.success(f"Parsed {len(df_p)} observations")
-    else:
-        st.sidebar.error("Parse failed")
+# =============================================================================
+# 9. RESORT DATABASE & SEARCH
+# =============================================================================
+@st.cache_data
+def load_resort_db():
+    try:
+        df = pd.read_csv("us_resorts.csv")
+        return df
+    except FileNotFoundError:
+        st.error("Critical Failure: us_resorts.csv not found.")
+        st.stop()
 
-# =============================================================================
-# 9. RESORT SELECTOR
-# =============================================================================
+df_resorts = load_resort_db()
+
+# Top Navigation Row
 top_left, top_right = st.columns([3, 1])
 with top_left:
-    selected_loc = st.selectbox(
-        "Where are we going?",
-        list(RESORTS.keys()),
-        index=0,
-        label_visibility="visible",
+    st.markdown('<div class="section-label" style="margin-top:0;">Station Selection</div>', unsafe_allow_html=True)
+    
+    search_options = df_resorts["Search_String"].tolist()
+    
+    # Intellingent Search Bar
+    selected_search = st.selectbox(
+        "Search", 
+        options=search_options,
+        index=search_options.index("Arapahoe Basin, CO") if "Arapahoe Basin, CO" in search_options else 0,
+        placeholder="Search US resorts (e.g. Steamboat)...",
+        label_visibility="collapsed"
     )
+
 with top_right:
     st.write("")
-    st.write("")
-    if st.button("＋ Add Spot"):
-        st.toast("Coming in v2.0 🚧")
+    if st.button("＋ Request Spot"):
+        st.toast("Database update scheduled.", icon="💾")
 
-conf = RESORTS[selected_loc]
-resort_tz = conf.get("timezone", "UTC")
+# Map the search result back to the configuration dictionary
+conf = df_resorts[df_resorts["Search_String"] == selected_search].iloc[0].to_dict()
+selected_loc = conf["Resort_Name"]
+resort_tz    = conf["Timezone"]
+
+# Helper: Build elevation config for the NWP engine
+conf["lat"] = float(conf["Lat"])
+conf["lon"] = float(conf["Lon"])
+conf["elev_ft"] = {
+    "Summit": int(conf["Peak_ft"]),
+    "Mid":    int((conf["Peak_ft"] + conf["Base_ft"]) / 2),
+    "Base":   int(conf["Base_ft"])
+}
+# Map Snotel IDs back to list format
+conf["snotel_ids"] = [x.strip() for x in str(conf["Snotel_IDs"]).split(",")]
 
 # =============================================================================
-# 10. DATA LOADING
+# 10. STATION MAPPING & DATA LOADING
 # =============================================================================
+
+# 1. Map Search Result to Config Dictionary
+conf = df_resorts[df_resorts["Search_String"] == selected_search].iloc[0].to_dict()
+selected_loc = conf["Resort_Name"]
+resort_tz    = conf["Timezone"]
+
+# 2. Pre-process Telemetry Parameters
+conf["lat"] = float(conf["Lat"])
+conf["lon"] = float(conf["Lon"])
+conf["elev_ft"] = {
+    "Summit": int(conf["Peak_ft"]),
+    "Mid":    int((conf["Peak_ft"] + conf["Base_ft"]) / 2),
+    "Base":   int(conf["Base_ft"])
+}
+# Convert comma-string "602, 505" into list ["602", "505"]
+conf["snotel_ids"] = [x.strip() for x in str(conf["Snotel_IDs"]).split(",")]
+
+# 3. Execute Autonomous API Pipeline
 with st.spinner(f"Syncing {selected_loc}…"):
     noaa_df, grid_elev = get_noaa_forecast(conf["lat"], conf["lon"])
-    snotel_df          = get_snotel_data(conf["snotel_ids"], conf.get("state", "CO"))
+    snotel_df = get_snotel_data(conf["snotel_ids"], conf.get("State", "CO"))
 
-    if st.session_state["use_nwp"]:
+    if st.session_state.get("use_nwp", True):
         with st.spinner("Fetching live NWP ensemble..."):
-            # Pass resort_tz into the wrapper
             nwp_df = get_nwp_forecast(conf["lat"], conf["lon"], conf["elev_ft"], selected_loc, resort_tz)
     else:
-        st.session_state["nwp_data"] = pd.DataFrame()
+        nwp_df = pd.DataFrame()
 
-    if st.session_state["raw_model_data"].empty:
-        demo_df, demo_tots = parse_snowiest_raw_text(DEMO_DATA)
-        st.session_state["raw_model_data"] = demo_df
-        st.session_state["model_totals"]   = demo_tots
+# 4. Finalize Dataframes
+df_models = nwp_df.copy()
 
-# NWP debug expander
-if st.session_state["use_nwp"]:
-    with st.expander("🔧 NWP Debug Info", expanded=False):
-        debug_data = debug_nwp_api(conf["lat"], conf["lon"])
-        if debug_data and "hourly" in debug_data:
-            st.json({
-                "elevation":   debug_data.get("elevation"),
-                "hourly_keys": list(debug_data["hourly"].keys())[:10],
-                "sample_time": debug_data["hourly"].get("time", [])[:3],
-            })
-
-# Combine data sources
-df_snowiest = st.session_state["raw_model_data"]
-df_nwp      = st.session_state["nwp_data"]
-
-if not df_nwp.empty and not df_snowiest.empty:
-    df_models = pd.concat([df_snowiest, df_nwp], ignore_index=True)
-elif not df_nwp.empty:
-    df_models = df_nwp
-else:
-    df_models = df_snowiest
-
-# Current conditions from SNOTEL
+# 5. Extract Current SNOTEL Telemetry
 current_swe, current_depth = 0.0, 0.0
 if not snotel_df.empty:
     snotel_df["Date"] = pd.to_datetime(snotel_df["Date"])
+    # Sort and drop NaNs to find the most recent physical snow depth
     latest = snotel_df.sort_values("Date").dropna(subset=["SWE"]).iloc[-1] if not snotel_df.empty else None
     if latest is not None:
         current_depth = float(latest.get("Depth", 0) or 0)
-        current_swe   = float(latest.get("SWE",   0) or 0)
+        current_swe   = float(latest.get("SWE", 0) or 0)
 
 # =============================================================================
 # 11. HERO SECTION (Adaptive Instrument Cluster)
 # =============================================================================
 st.markdown('<div style="height:1rem;"></div>', unsafe_allow_html=True)
-
-band_options  = ["Summit", "Mid", "Base"] if "Band" in df_models.columns else ["Summit"]
-selected_band = "Summit"
-if "Band" in df_models.columns:
-    selected_band = st.select_slider(
-        "Elevation Band",
-        options=band_options,
-        value="Summit",
-        help="Select elevation band for forecast (NWP only)"
-    )
 st.markdown("---")
-st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
 
-metrics = None
+# 1. Initialize State and Metrics Variable
+if "selected_band" not in st.session_state:
+    st.session_state.selected_band = "Mid"
+
+metrics = None # Prevents NameError
+
+# 2. Layout
+h_col1, h_col2, h_col3 = st.columns([2.2, 4.8, 4], gap="medium")
+
+with h_col1:
+    st.markdown('<div class="section-label">Elevation Profile</div>', unsafe_allow_html=True)
+    
+    # Nested Button Selection Logic
+    # These are standard buttons but we will position the CSS mountain behind them
+    if st.button("▲ PEAK", use_container_width=True, key="btn_peak"):
+        st.session_state.selected_band = "Peak"
+        st.toast("Telemetry: Summit", icon="🏔️")
+    if st.button("■ MID", use_container_width=True, key="btn_mid"):
+        st.session_state.selected_band = "Mid"
+        st.toast("Telemetry: Mid-Mountain", icon="🏔️")
+    if st.button("▼ BASE", use_container_width=True, key="btn_base"):
+        st.session_state.selected_band = "Base"
+        st.toast("Telemetry: Base/Lodge", icon="🏔️")
+
+    selected_band = st.session_state.selected_band
+
+    # Render the Visual Mountain Shape
+    st.markdown(f"""
+    <div class="mtn-selector-wrap fade-up">
+        <div class="tier-shape peak-shape {'active' if selected_band == 'Peak' else ''}"></div>
+        <div class="tier-shape mid-shape {'active' if selected_band == 'Mid' else ''}"></div>
+        <div class="tier-shape base-shape {'active' if selected_band == 'Base' else ''}"></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# 3. Calculate Physics Metrics Immediately
 if not df_models.empty:
     all_models = list(df_models["Model"].unique())
     metrics = get_forecast_metrics_cached(df_models, all_models, current_depth, selected_band, resort_tz)
 
-hero_val   = "—"
-hero_label = "AWAITING DATA"
-hero_sub   = "Load ensemble data to initialize telemetry."
-
-if metrics:
-    hc = metrics["hero_context"]
-    if hc["condition"] == "SNOW":
-        hero_val   = f"{hc['peak_amount']:.1f}\""
-        hero_label = "ESTIMATED BEST DAY" # Updated Label
-        day_str = hc["best_day"].strftime("%A, %b %d") if hc["best_day"] else "Unknown"
-        hero_sub   = f"Target: {day_str} · {hc['timing_note']}"
-    else:
-        hero_val   = "DRY"
-        hero_label = "ATMOSPHERE STABLE"
-        day_str = hc["best_day"].strftime("%A, %b %d") if hc["best_day"] else "Unknown"
-        hero_sub   = f"{hc['timing_note']} · Peak target: {day_str}"
-
-h_col1, h_col2, h_col3 = st.columns([3, 4.5, 3.5], gap="large")
-
-with h_col1:
-    st.markdown('<div class="section-label" style="margin-top:0;">Station</div>', unsafe_allow_html=True)
-    st.markdown(f'<div style="font-size:1.6rem; font-weight:700; color:var(--text-pri); margin-bottom:1rem;">{selected_loc}</div>', unsafe_allow_html=True)
-    
-    if st.session_state["use_nwp"]:
-        with st.expander("📡 NWP Uplink Status", expanded=False):
-            debug_data = debug_nwp_api(conf["lat"], conf["lon"])
-            if debug_data and "hourly" in debug_data:
-                st.json({
-                    "elevation":   debug_data.get("elevation"),
-                    "hourly_keys": list(debug_data["hourly"].keys())[:5],
-                })
-            else:
-                st.write("Awaiting connection...")
-
 with h_col2:
+    # ... (Hero Value logic remains the same, but now safely uses 'metrics')
+    hero_val, hero_label, hero_sub = "—", "AWAITING DATA", "Awaiting API..."
+    if metrics:
+        hc = metrics["hero_context"]
+        hero_val = f"{hc['peak_amount']:.1f}\"" if hc["condition"] == "SNOW" else "DRY"
+        hero_label = "ESTIMATED BEST DAY" if hc["condition"] == "SNOW" else "ATMOSPHERE STABLE"
+        hero_sub = f"Target: {hc['best_day'].strftime('%a, %b %d')}" if hc["best_day"] else hc["timing_note"]
+
     st.markdown(f"""
     <div class="fade-up fade-up-1" style="text-align: center; border-left: 1px solid var(--border); border-right: 1px solid var(--border); padding: 0 1rem;">
         <div class="hero-label">{hero_label}</div>
-        <div class="hero-stat" style="font-size: clamp(3rem, 5vw, 4.5rem);">{hero_val}</div>
+        <div class="hero-stat">{hero_val}</div>
         <div class="hero-sub">{hero_sub}</div>
     </div>
     """, unsafe_allow_html=True)
 
 with h_col3:
-    live_slr   = calculate_swe_ratio(noaa_df.iloc[0]["Temp"]) if not noaa_df.empty else 0
-    spread_str = f"{metrics['avg_spread']:.1f}\"" if metrics else "—"
-
-    st.markdown('<div class="glass-card glass-card-accent fade-up fade-up-2" style="margin-bottom:0; padding:1rem;">', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">Telemetry</div>', unsafe_allow_html=True)
+    st.markdown('<div class="glass-card glass-card-accent fade-up fade-up-2" style="padding:1rem;">', unsafe_allow_html=True)
+    
     m1, m2 = st.columns(2)
-    with m1:
-        st.metric("Base Depth", f'{current_depth:.0f}"')
-    with m2:
-        st.metric("SWE Total", f'{current_swe:.2f}"')
+    m1.metric("Base Depth", f'{current_depth:.0f}"')
+    m2.metric("SWE Total", f'{current_swe:.2f}"')
     
-    st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
     m3, m4 = st.columns(2)
-    with m3:
-        st.metric("Live SLR", f"{live_slr}:1")
-    with m4:
-        st.metric("Spread", spread_str)
-
-    source_indicators = []
-    if not df_snowiest.empty: source_indicators.append('<span class="pill pill-blue">Snowiest</span>')
-    if not df_nwp.empty:      source_indicators.append('<span class="pill pill-teal">NWP</span>')
-    
-    st.markdown(
-        f'<div style="margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">'
-        f'<div style="display:flex; gap:0.4rem;">{"".join(source_indicators)}</div>'
-        f'<div style="font-size:0.65rem;"><span class="live-dot"></span><span style="color:{ACCENT_TEAL}; opacity:0.8;">{conf["elevation"]}</span></div>'
-        f'</div>',
-        unsafe_allow_html=True
-    )
+    m3.metric("Live SLR", f"{calculate_swe_ratio(noaa_df.iloc[0]['Temp']) if not noaa_df.empty else 0}:1")
+    # SAFE CHECK FOR METRICS
+    m4.metric("Spread", f"{metrics['avg_spread']:.1f}\"" if metrics else "—")
     st.markdown('</div>', unsafe_allow_html=True)
 
 # =============================================================================
-# 12. ATMOSPHERIC OUTLOOK
+# 12. ATMOSPHERIC OUTLOOK (Hybrid Elevation-Aware)
 # =============================================================================
 st.markdown('<div style="height:1.5rem;"></div>', unsafe_allow_html=True)
-st.markdown('<div class="section-label fade-up fade-up-3">Atmospheric Outlook</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-label fade-up">Atmospheric Outlook</div>', unsafe_allow_html=True)
 
 if not noaa_df.empty:
     now_naive = datetime.now()
-    shorts    = noaa_df[noaa_df["Time"] > now_naive].head(96).copy()
+    shorts = noaa_df[noaa_df["Time"] > now_naive].head(96).copy()
+    shorts["Date"] = shorts["Time"].dt.date
+    
+    # Aggregate NOAA base data
+    daily_noaa = shorts.groupby("Date").agg(
+        Cond=("Summary", lambda x: x.mode()[0] if not x.mode().empty else x.iloc[0]),
+        Wind=("Wind", "max"),
+        Max_NOAA=("Temp", "max"),
+        Min_NOAA=("Temp", "min")
+    ).reset_index().head(4)
+    
+    cards_html = '<div class="outlook-strip fade-up">'
+    
+    for _, row in daily_noaa.iterrows():
+        # Default to NOAA temps as the baseline
+        max_f, min_f = row["Max_NOAA"], row["Min_NOAA"]
+        
+        # Only overwrite with NWP if the physics engine has successfully labeled the data
+        if not nwp_df.empty and "Band" in nwp_df.columns:
+            nwp_day = nwp_df[(nwp_df["Band"] == selected_band) & (nwp_df["Date"].dt.date == row["Date"])]
+            if not nwp_day.empty:
+                max_f = (nwp_day["Temp_C"].max() * 9/5) + 32
+                min_f = (nwp_day["Temp_C"].min() * 9/5) + 32
 
-    if not shorts.empty:
-        shorts["Date"] = shorts["Time"].dt.date
-        daily_noaa = shorts.groupby("Date").agg(
-            Min =("Temp",      "min"),
-            Max =("Temp",      "max"),
-            Cond=("Summary",   lambda x: x.mode()[0] if not x.mode().empty else x.iloc[0]),
-            Wind=("Wind",      "max"),
-            SLR =("SWE_Ratio", "mean"),
-        ).reset_index().head(4)
-
-        cards_html = '<div class="outlook-strip fade-up fade-up-4">'
-        for _, row in daily_noaa.iterrows():
-            d_str    = row["Date"].strftime("%a %d")
-            is_snow  = "Snow" in str(row["Cond"])
-            pill_cls = "pill-blue" if is_snow else "pill-rose"
-            cond_str = str(row["Cond"])[:18]
-            slr_str  = f"  ·  SLR {row['SLR']:.0f}:1" if is_snow else ""
-            cards_html += f"""
-            <div class="outlook-card">
-                <div style="font-size:0.72rem; letter-spacing:0.06em; text-transform:uppercase;
-                            color:var(--text-muted); margin-bottom:0.4rem;">{d_str}</div>
-                <div style="font-size:1.25rem; font-weight:700; margin-bottom:0.5rem;
-                            color:var(--text-pri);">{row['Max']:.0f}° / {row['Min']:.0f}°</div>
-                <span class="pill {pill_cls}">{cond_str}</span>
-                <div style="font-size:0.7rem; color:var(--text-muted); margin-top:0.5rem;">
-                    💨 {row['Wind']:.0f} mph{slr_str}
-                </div>
-            </div>"""
-        cards_html += '</div>'
-        st.markdown(cards_html, unsafe_allow_html=True)
+        is_snow = "Snow" in str(row["Cond"])
+        pill_cls = "pill-blue" if is_snow else "pill-rose"
+        
+        cards_html += f"""
+        <div class="outlook-card">
+            <div style="font-size:0.7rem; color:var(--text-muted);">{row['Date'].strftime('%a %d')}</div>
+            <div style="font-size:1.2rem; font-weight:700;">{max_f:.0f}° / {min_f:.0f}°</div>
+            <span class="pill {pill_cls}">{str(row['Cond'])[:15]}</span>
+            <div style="font-size:0.7rem; margin-top:0.5rem;">💨 {row['Wind']:.0f} mph</div>
+        </div>"""
+    
+    cards_html += '</div>'
+    st.markdown(cards_html, unsafe_allow_html=True)
 else:
     st.caption("NOAA data unavailable")
 
@@ -752,10 +829,17 @@ if not df_models.empty and metrics:
             noaa_cutoff = noaa_df["Time"].max() if not noaa_df.empty else None
 
             if not show_extended:
-                # --- FIX: Safe timezone-aware cutoff using the resort's timezone ---
+                # Cap at 7 days for standard view
                 data_tz = pytz.timezone(resort_tz)
-                cutoff = pd.Timestamp.now(tz=data_tz) + pd.Timedelta(days=7)
-                daily_stats = daily_stats[daily_stats["Date"] <= cutoff].copy()
+                cutoff = pd.Timestamp.now(tz=data_tz).normalize() + pd.Timedelta(days=7)
+                windowed = daily_stats[daily_stats["Date"] <= cutoff].copy()
+                w_end_param = cutoff
+            else:
+                # Full NWP duration (usually 10-16 days)
+                windowed = daily_stats.copy()
+                w_end_param = daily_stats["Date"].max()
+
+            # Pass w_end_param to the build_forecast_figure call below
                 # -------------------------------------------------------------------
 
             if len(daily_stats) > 1:
@@ -812,83 +896,36 @@ if not df_models.empty and metrics:
                 band_filter=selected_band,
                 is_dark=is_dark,
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
             st.markdown('</div>', unsafe_allow_html=True)
-
-    totals = st.session_state["model_totals"]
-    if totals:
-        with st.expander("Snowiest Model Integrity Check"):
-            check = [
-                {
-                    "Model": k,
-                    "Table": v["declared"],
-                    "Calc":  round(v["calculated"], 1),
-                    "Δ":     round(v["declared"] - v["calculated"], 1),
-                    "OK":    "✅" if abs(v["declared"] - v["calculated"]) < 0.5 else "⚠️",
-                }
-                for k, v in totals.items()
-            ]
-            st.dataframe(pd.DataFrame(check), hide_index=True, use_container_width=True)
-
-    if not df_nwp.empty and "Band" in df_nwp.columns:
-        with st.expander("NWP Physics Details"):
-            st.markdown("""
-            **Physics Engine Parameters:**
-            - Lapse Rate: 0.65°C per 100m
-            - Orographic Lift Factor: 0.05 per 100m
-            - Kuchera SLR: 12 + (-2 - temp_c)
-            - DGZ Champaign: 18:1 SLR (Temp -12°C to -18°C, RH >80%)
-            """)
-            latest_nwp = df_nwp[df_nwp["Band"] == selected_band].groupby("Model").last().reset_index()
-            if not latest_nwp.empty:
-                cols = [c for c in ["Model", "Temp_C", "SLR", "Cloud_Cover", "Freezing_Level_m"] if c in latest_nwp.columns]
-                st.dataframe(latest_nwp[cols].round(1), hide_index=True, use_container_width=True)
+    
+if not nwp_df.empty and "Band" in nwp_df.columns:
+    with st.expander("NWP Physics Details"):
+        # ... logic stays the same, just use nwp_df
+        latest_nwp = nwp_df[nwp_df["Band"] == selected_band].groupby("Model").last().reset_index()
+        st.markdown("""
+        **Physics Engine Parameters:**
+        - Lapse Rate: 0.65°C per 100m
+        - Orographic Lift Factor: 0.05 per 100m
+        - Kuchera SLR: 12 + (-2 - temp_c)
+        - DGZ Champaign: 18:1 SLR (Temp -12°C to -18°C, RH >80%)
+        """)
+        latest_nwp = nwp_df[nwp_df["Band"] == selected_band].groupby("Model").last().reset_index()
+        if not latest_nwp.empty:
+            cols = [c for c in ["Model", "Temp_C", "SLR", "Cloud_Cover", "Freezing_Level_m"] if c in latest_nwp.columns]
+            st.dataframe(latest_nwp[cols].round(1), hide_index=True, width="stretch")
 
 else:
     st.markdown(f"""
     <div style="padding:3rem 2rem; border:1px dashed {BORDER}; border-radius:14px;
                 text-align:center; color:var(--text-muted);">
         <div style="font-size:1.5rem; margin-bottom:0.5rem;">❄</div>
-        <div style="font-size:0.9rem;">No ensemble data — enable NWP in sidebar or paste a Snowiest.app table</div>
+        <div style="font-size:0.9rem;">No ensemble data — enable NWP in sidebar</div>
     </div>
     """, unsafe_allow_html=True)
 
 # =============================================================================
-# 14. UPDATE MODEL DATA
-# =============================================================================
-st.markdown('<div style="height:1.5rem;"></div>', unsafe_allow_html=True)
-with st.expander("Update Model Data"):
-    col1, col2 = st.columns(2)
-    with col1:
-        st.link_button(
-            f"↗ Snowiest — {selected_loc}",
-            conf["snowiest_url"],
-            help="Opens Snowiest.app. Copy the table and paste below."
-        )
-    with col2:
-        if st.button("🔄 Refresh NWP Data", help="Clear cache and fetch fresh NWP data"):
-            cache_path = PointForecastEngine.get_cache_path(conf["lat"], conf["lon"])
-            if cache_path.exists():
-                cache_path.unlink()
-            st.cache_data.clear()
-            st.rerun()
-
-    st.markdown('<div style="height:0.5rem;"></div>', unsafe_allow_html=True)
-    inline_paste = st.text_area(
-        "Or paste Snowiest table here", height=100, label_visibility="collapsed",
-        placeholder="Paste Snowiest table…"
-    )
-    if st.button("Parse", key="inline_parse"):
-        df_p, tots_p = parse_snowiest_raw_text(inline_paste)
-        if not df_p.empty:
-            st.session_state["raw_model_data"] = df_p
-            st.session_state["model_totals"]   = tots_p
-            st.rerun()
-        else:
-            st.error("Parse failed — check format")
-
-# =============================================================================
-# 15. SNOTEL VERIFICATION
+# 14. SNOTEL VERIFICATION
 # =============================================================================
 st.markdown('<div style="height:1.5rem;"></div>', unsafe_allow_html=True)
 st.markdown('<div class="section-label">SNOTEL Verification</div>', unsafe_allow_html=True)
@@ -947,12 +984,12 @@ if not snotel_df.empty:
         ))
         fig_s.update_layout(layout_s)
         fig_s.update_yaxes(title_text="SWE (in)", secondary_y=False)
-        st.plotly_chart(fig_s, use_container_width=True)
+        st.plotly_chart(fig_s, width="stretch")
 
     with st.expander("SNOTEL Raw Records"):
         show_cols = [c for c in ["Date", "SiteID", "SWE", "SWE_Delta", "Depth", "Temp"] if c in snotel_df.columns]
         disp = snotel_df[show_cols].sort_values("Date", ascending=False).reset_index(drop=True)
-        st.dataframe(disp, hide_index=True, use_container_width=True, height=240)
+        st.dataframe(disp, hide_index=True, width="stretch", height=240)
 
 else:
     st.markdown(f"""
@@ -963,7 +1000,7 @@ else:
     """, unsafe_allow_html=True)
 
 # =============================================================================
-# 16. RAW TELEMETRY TABLES
+# 15. RAW TELEMETRY TABLES
 # =============================================================================
 st.markdown('<div style="height:1rem;"></div>', unsafe_allow_html=True)
 st.markdown('<div class="section-label">Raw Telemetry</div>', unsafe_allow_html=True)
@@ -973,7 +1010,7 @@ with t1:
     st.caption("SNOTEL · Last 10 Days")
     if not snotel_df.empty:
         show_cols = [c for c in ["Date", "SWE", "Depth", "Temp"] if c in snotel_df.columns]
-        st.dataframe(snotel_df.tail(10)[show_cols], use_container_width=True, hide_index=True)
+        st.dataframe(snotel_df.tail(10)[show_cols], width="stretch", hide_index=True)
     else:
         st.info("No SNOTEL data")
 
@@ -984,21 +1021,21 @@ with t2:
                      if c in metrics["daily_stats"].columns]
         st.dataframe(
             metrics["daily_stats"][disp_cols].round(2),
-            use_container_width=True, hide_index=True
+            width="stretch", hide_index=True
         )
     else:
         st.info("No forecast data")
 
 with t3:
     st.caption("NWP Live Data")
-    # Check if df_nwp exists and the 'Band' column is present 
-    if not df_nwp.empty and "Band" in df_nwp.columns:
+    # Check if nwp_df exists and the 'Band' column is present 
+    if not nwp_df.empty and "Band" in nwp_df.columns:
         # Match the band to the user-selected band from the slider 
-        latest_nwp = df_nwp[df_nwp["Band"] == selected_band].groupby("Model").last().reset_index()
+        latest_nwp = nwp_df[nwp_df["Band"] == selected_band].groupby("Model").last().reset_index()
         
         # Ensure we only try to display columns that exist 
         cols = [c for c in ["Model", "Amount", "Temp_C", "SLR"] if c in latest_nwp.columns]
-        st.dataframe(latest_nwp[cols].round(1), use_container_width=True, hide_index=True)
+        st.dataframe(latest_nwp[cols].round(1), width="stretch", hide_index=True)
     else:
         st.info("No NWP data (enable in sidebar)")
 

@@ -34,29 +34,6 @@ DEFAULT_COLD_RATIO = 30
 CACHE_DIR = Path(".cache")
 CACHE_TTL_SECONDS = 4 * 3600  # 4 Hours
 
-DEMO_DATA = """Model / Date
-Snow
-18 Wed 	19 Thu 	20 Fri 	21 Sat 	22 Sun 	23 Mon 	24 Tue 	25 Wed 	26 Thu 	27 Fri 	28 Sat 	1 Sun 	 2 Mon 	 3 Tue 	 4 Wed 	 Total
-ECMWF IFS 025 	 1.7" 	0.4" 	1.1" 	0.7" 	0" 	0" 	0.1" 	4" 	1.7" 	0.3" 	0.4" 	0" 	0.1" 	6" 	- 	 16"
-GFS 3" 	0.9" 	0.9" 	0.2" 	0" 	0" 	0.2" 	0" 	0" 	0.9" 	0" 	0" 	0.7" 	0.1" 	0.2" 	7"
-GEM 2" 	0.4" 	1.6" 	0.4" 	0" 	0" 	0" 	0.4" 	0.4" 	- 	 - 	 - 	 - 	 - 	 - 	 5"
-JMA 0.9" 	0.7" 	0.2" 	0.5" 	0" 	0" 	0" 	4" 	2" 	8" 	- 	 - 	 - 	 - 	 - 	 16"
-ICON 	0.2" 	0.1" 	0.8" 	0" 	0" 	0" 	0.1" 	- 	 - 	 - 	 - 	 - 	 - 	 - 	 - 	 1.1"
-MeteoFrance 1.3" 	0.3" 	1.2" 	0.8" 	- 	 - 	 - 	 - 	 - 	 - 	 - 	 - 	 - 	 - 	 - 	 4"
-Average 1.5" 	0.5" 	1" 	0.4" 	0" 	0" 	0.1" 	2" 	1" 	3" 	0.2" 	0" 	0.4" 	3" 	0.2" 	13"
-Snowfall Prediction History (Estimated)
-Model / Date
-Snow
-8 Sun 	 9 Mon 	 10 Tue 	11 Wed 	12 Thu 	13 Fri 	14 Sat 	15 Sun 	16 Mon 	17 Tue 	Total
-ECMWF IFS 025 	 0" 	0" 	0.2" 	0.4" 	0.1" 	1.6" 	0.7" 	0" 	0" 	2" 	5"
-GFS 0" 	0" 	0" 	0.1" 	0.2" 	0.4" 	0.2" 	0" 	0" 	0.4" 	1.2"
-GEM 0" 	0" 	0.2" 	0.6" 	0.5" 	1.5" 	0.2" 	0" 	0" 	1.4" 	5"
-JMA 0" 	0" 	0.8" 	0.4" 	0.1" 	0.1" 	0.3" 	0" 	0" 	1.1" 	3"
-ICON 	0" 	0" 	0" 	0" 	0.3" 	0.8" 	0.2" 	0" 	0" 	1.1" 	3"
-MeteoFrance 0" 	0" 	0.2" 	0.2" 	0.1" 	1.3" 	0.2" 	0" 	0" 	1.1" 	3"
-Average 0" 	0" 	0.2" 	0.3" 	0.2" 	1" 	0.3" 	0" 	0" 	1.2" 	3"
-"""
-
 RESORTS = {
     "Winter Park": {
         "lat": 39.8859, "lon": -105.764,
@@ -485,104 +462,6 @@ def get_snotel_data(site_ids, state="CO"):
     res["Date"] = res["Date"].dt.strftime("%Y-%m-%d")
     return res
 
-def _calculate_date(day_val, is_history):
-    now = datetime.now()
-    try:
-        day_num = int(day_val)
-        month, year = now.month, now.year
-        if not is_history and day_num < now.day:
-            month = (month % 12) + 1
-            if month == 1:
-                year += 1
-        elif is_history and day_num > now.day + 5:
-            month = month - 1 if month > 1 else 12
-            if month == 12:
-                year -= 1
-        return f"{year}-{month:02d}-{day_num:02d}"
-    except:
-        return None
-
-def _parse_model_line(line, headers, is_history, model_totals):
-    parts = line.split('\t')
-    if len(parts) < 2:
-        return []
-    model_name = parts[0].strip()
-    keywords = ["ECMWF IFS 025", "ECMWF", "GFS", "GEM", "JMA", "ICON", "MeteoFrance", "Average"]
-    if not any(kw in model_name for kw in keywords):
-        return []
-
-    values = parts[1:]
-    numbers = []
-    for v in values:
-        v = v.strip().replace('"', '')
-        if v in ('-', '.', ''):
-            numbers.append(None)
-        else:
-            try:
-                numbers.append(float(v))
-            except:
-                numbers.append(None)
-
-    observations = []
-    daily_sum = 0.0
-    for i, day_val in enumerate(headers):
-        if i >= len(numbers):
-            break
-        amount = numbers[i] if numbers[i] is not None else 0.0
-        daily_sum += amount
-        date_str = _calculate_date(day_val, is_history)
-        if date_str:
-            observations.append({
-                "Date": pd.to_datetime(date_str),
-                "Amount": amount,
-                "Model": model_name,
-                "IsHistory": is_history,
-                "Source": "Snowiest"
-            })
-
-    if len(numbers) > len(headers):
-        total_val = numbers[len(headers)]
-        if total_val is not None:
-            key = f"{model_name} ({'H' if is_history else 'F'})"
-            model_totals[key] = {"declared": total_val, "calculated": daily_sum}
-
-    return observations
-
-def parse_snowiest_raw_text(text):
-    if not text:
-        return pd.DataFrame(), {}
-    obs = []
-    totals = {}
-    sections = re.split(r"(Snowfall Prediction History)", text)
-
-    f_lines = sections[0].split("\n")
-    f_headers = []
-    for line in f_lines:
-        m = re.findall(r"(\d+)\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)", line)
-        if m:
-            f_headers = [x[0] for x in m]
-            break
-    if f_headers:
-        for line in f_lines:
-            obs.extend(_parse_model_line(line, f_headers, False, totals))
-
-    if len(sections) > 1:
-        h_lines = sections[1].split("\n")
-        h_headers = []
-        for line in h_lines:
-            m = re.findall(r"(\d+)\s+(Sun|Mon|Tue|Wed|Thu|Fri|Sat)", line)
-            if m:
-                h_headers = [x[0] for x in m]
-                break
-        if h_headers:
-            for line in h_lines:
-                obs.extend(_parse_model_line(line, h_headers, True, totals))
-
-    if not obs:
-        return pd.DataFrame(), {}
-    df = pd.DataFrame(obs).dropna()
-    return df, totals
-
 def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band_filter="Summit", tz_str="UTC"):
     if df_models.empty or not selected_models:
         return None
@@ -603,7 +482,7 @@ def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band
 
     tz = pytz.timezone(tz_str)
     now = pd.Timestamp.now(tz=tz).normalize()
-    future = filtered[filtered["Date"] >= now]
+    future = filtered[filtered["Date"] >= now].copy()
 
     if future.empty:
         return None
@@ -658,22 +537,22 @@ def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band
         is_hourly = (ts_consensus["Date"].dt.hour > 0).any()
         
         if is_hourly:
-            # Calculate rolling 24 hour accumulation
             ts_consensus.set_index("Date", inplace=True)
-            rolling_24h = ts_consensus["Amount"].rolling("24H").sum()
-            ts_consensus.reset_index(inplace=True)
+            # Fix Future Warning: Use '24h' instead of '24H'
+            rolling_24h = ts_consensus["Amount"].rolling("24h").sum()
             
-            peak_idx = rolling_24h.idxmax()
-            peak_end_time = ts_consensus.loc[peak_idx, "Date"]
-            peak_amount = rolling_24h.iloc[peak_idx]
+            # idxmax() returns the timestamp itself because Date is the index
+            peak_end_time = rolling_24h.idxmax()
+            peak_amount = rolling_24h.loc[peak_end_time]
+            
+            # Reset index AFTER we are done using the time-based index
+            ts_consensus.reset_index(inplace=True)
             
             # The Operational Noon Cutoff Rule
             if peak_end_time.hour <= 12:
-                # Accumulation finished in the morning; target today
                 hero_context["best_day"] = peak_end_time.normalize()
                 hero_context["timing_note"] = f"Accumulation tapers by {peak_end_time.strftime('%H:00')}"
             else:
-                # Accumulation finished late; target tomorrow morning
                 hero_context["best_day"] = (peak_end_time + pd.Timedelta(days=1)).normalize()
                 hero_context["timing_note"] = f"Drops {peak_amount:.1f}\" by {peak_end_time.strftime('%a %H:00')}"
                 
@@ -691,3 +570,63 @@ def calculate_forecast_metrics(df_models, selected_models, current_depth=0, band
         "daily_stats":     daily_stats,
         "hero_context":    hero_context
     }
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+def build_forecast_figure(stats, noaa_df, show_spaghetti, show_ribbon, df_models, selected_models, noaa_cutoff_dt, show_extended, w_end, band_filter="Summit", is_dark=True):
+    fig = go.Figure()
+    if stats.empty: return fig
+
+    # 1. DAILY BARS (Snow per 24h window)
+    fig.add_trace(go.Bar(
+        x=stats["Date"],
+        y=stats["mean"],
+        name="Daily Mean",
+        marker_color='rgba(45,212,191,0.3)' if is_dark else 'rgba(45,212,191,0.5)',
+        hovertemplate="Daily Accum: %{y:.1f}\"<extra></extra>"
+    ))
+
+    # 2. UNCERTAINTY RIBBON
+    if show_ribbon:
+        fig.add_trace(go.Scatter(
+            x=stats["Date"].tolist() + stats["Date"].tolist()[::-1],
+            y=stats["max"].tolist() + stats["min"].tolist()[::-1],
+            fill='toself',
+            fillcolor='rgba(56,189,248,0.07)' if is_dark else 'rgba(56,189,248,0.12)',
+            line=dict(color='rgba(255,255,255,0)'),
+            hoverinfo="skip", showlegend=False
+        ))
+
+    # 3. CUMULATIVE CONSENSUS LINE
+    fig.add_trace(go.Scatter(
+        x=stats["Date"],
+        y=stats["cumulative"],
+        mode='lines+markers',
+        line=dict(color='#38bdf8', width=3),
+        marker=dict(size=4),
+        name="Total Forecast"
+    ))
+
+    # 4. SPAGHETTI (Individual Ensemble Members)
+    if show_spaghetti and not df_models.empty:
+        for model in selected_models:
+            m_data = df_models[df_models["Model"] == model].copy()
+            if "Band" in m_data.columns:
+                m_data = m_data[m_data["Band"] == band_filter]
+            
+            # Aggregate to daily cumulative for spaghetti lines
+            m_daily = m_data.groupby(m_data["Date"].dt.normalize())["Amount"].sum().cumsum().reset_index()
+            fig.add_trace(go.Scatter(
+                x=m_daily["Date"], y=m_daily["Amount"],
+                mode='lines', line=dict(width=1),
+                opacity=0.2, showlegend=False, hoverinfo="skip"
+            ))
+
+    fig.update_layout(
+        hovermode="x unified",
+        margin=dict(l=0, r=0, t=30, b=0),
+        height=400,
+        legend=dict(orientation="h", y=1.1, x=0),
+        xaxis=dict(range=[stats["Date"].min(), w_end] if w_end else None)
+    )
+    return fig

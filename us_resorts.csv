@@ -1,0 +1,5 @@
+Resort_Name,State,Search_String,Lat,Lon,Base_ft,Peak_ft,Snotel_IDs,Timezone
+Arapahoe Basin,CO,"Arapahoe Basin, CO",39.6419,-105.8753,10780,13050,"602, 505",America/Denver
+Winter Park,CO,"Winter Park, CO",39.8859,-105.7640,9000,12060,"1186, 335",America/Denver
+Steamboat,CO,"Steamboat, CO",40.4855,-106.8336,6900,10568,"457, 709, 825",America/Denver
+Mammoth Mountain,CA,"Mammoth Mountain, CA",37.6307,-119.0326,7953,11053,"MAM",America/Los_Angeles
